@@ -341,6 +341,10 @@ esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
 #ifdef CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION
         .disable_clean_session = 1,
 #endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */
+#ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
+#define RMAKER_MQTT_USERNAME    CONFIG_ESP_RMAKER_MQTT_USERNAME
+        .username = RMAKER_MQTT_USERNAME,
+#endif
     };
     mqtt_data->mqtt_client = esp_mqtt_client_init(&mqtt_client_cfg);
     return ESP_OK;

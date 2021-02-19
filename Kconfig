@@ -47,6 +47,21 @@ menu "ESP RainMaker Common"
             your use case. Please read MQTT specs to understand more about persistent sessions
             and the cleanSession flag.
 
+    config ESP_RMAKER_MQTT_SEND_USERNAME
+        bool "Send MQTT Username"
+        default y
+        help
+            Send a Username during MQTT Connect. This is generally required only for tracking
+            the MQTT client types, platform, SDK, etc. in AWS.
+
+    config ESP_RMAKER_MQTT_USERNAME
+        string "MQTT Username"
+        depends on ESP_RMAKER_MQTT_SEND_USERNAME
+        default "?Platform=APN/1 ESPIF,RAINMAKER,v1.0"
+        help
+            Username to be passed during MQTT Connect. This is generally used only for tracking
+            the MQTT client types, platform, SDK, etc. in AWS. Please do not change unless required.
+
     config ESP_RMAKER_WORK_QUEUE_TASK_STACK
         int "ESP RainMaker Work Queue Task stack"
         default 4096
