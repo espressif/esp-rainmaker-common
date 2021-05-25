@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #include <stdint.h>
-#include <esp_timer.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/timers.h>
 #include <esp_system.h>
 #include <esp_wifi.h>
 #include <nvs_flash.h>
@@ -20,31 +21,36 @@
 
 ESP_EVENT_DEFINE_BASE(RMAKER_COMMON_EVENT);
 
-static esp_timer_handle_t reboot_timer;
+static TimerHandle_t reboot_timer;
 
-static void esp_rmaker_reboot_cb(void *priv)
+static void esp_rmaker_reboot_cb(TimerHandle_t handle)
 {
+    xTimerDelete(reboot_timer, 10);
+    reboot_timer = NULL;
     esp_restart();
 }
 
 esp_err_t esp_rmaker_reboot(uint8_t seconds)
 {
+    /* If reboot timer already exists, it means that a reboot operation is already in progress.
+     * So, just return an error from here.
+     */
     if (reboot_timer) {
         return ESP_FAIL;
     }
-    esp_timer_create_args_t reboot_timer_conf = {
-        .callback = esp_rmaker_reboot_cb,
-        .dispatch_method = ESP_TIMER_TASK,
-        .name = "rmaker_reboot_tm"
-    };
-    esp_err_t err = ESP_FAIL;
-    if (esp_timer_create(&reboot_timer_conf, &reboot_timer) == ESP_OK) {
-        err = esp_timer_start_once(reboot_timer, seconds * 1000000U);
+    reboot_timer = xTimerCreate("rmaker_reboot_tm", (seconds * 1000) / portTICK_PERIOD_MS,
+                            pdFALSE, NULL, esp_rmaker_reboot_cb);
+    if (reboot_timer) {
+        if (xTimerStart(reboot_timer, 10) != pdTRUE) {
+            xTimerDelete(reboot_timer, 10);
+            reboot_timer = NULL;
+            return ESP_FAIL;
+        }
+    } else {
+        return ESP_ERR_NO_MEM;
     }
-    if (err == ESP_OK) {
-        esp_event_post(RMAKER_COMMON_EVENT, RMAKER_EVENT_REBOOT, &seconds, sizeof(seconds), portMAX_DELAY);
-    }
-    return err;
+    esp_event_post(RMAKER_COMMON_EVENT, RMAKER_EVENT_REBOOT, &seconds, sizeof(seconds), portMAX_DELAY);
+    return ESP_OK;
 }
 
 esp_err_t esp_rmaker_wifi_reset(uint8_t seconds)
