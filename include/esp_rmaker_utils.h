@@ -32,7 +32,7 @@ typedef struct esp_rmaker_time_config {
     sntp_sync_time_cb_t sync_time_cb;
 } esp_rmaker_time_config_t;
 
-/** Reboot the chip after a delay
+/** Reboot the device after a delay
  *
  * This API just starts a reboot timer and returns immediately.
  * The actual reboot is trigerred asynchronously in the timer callback.
@@ -40,44 +40,54 @@ typedef struct esp_rmaker_time_config {
  * their operations (Eg. MQTT publish to indicate OTA success). The \ref RMAKER_EVENT_REBOOT
  * event is triggered when the reboot timer is started.
  *
- * @param[in] seconds Time in seconds after which the chip should reboot.
+ * @param[in] seconds Time in seconds after which the device should reboot.
  *
  * @return ESP_OK on success.
  * @return error on failure.
  */
-esp_err_t esp_rmaker_reboot(uint8_t seconds);
+esp_err_t esp_rmaker_reboot(int8_t seconds);
 
-/** Reset Wi-Fi credentials and reboot
+/** Reset Wi-Fi credentials and (optionally) reboot
  *
- * This will reset just the Wi-Fi credentials and trigger a reboot.
+ * This will reset just the Wi-Fi credentials and (optionally) trigger a reboot.
  * This is useful when you want to keep all the entries in NVS memory
  * intact, but just change the Wi-Fi credentials. The \ref RMAKER_EVENT_WIFI_RESET
- * event is triggered after the reset.
+ * event is triggered when this API is called. The actual reset will happen after a
+ * delay if reset_seconds is not zero.
  *
- * @note This function internally calls esp_rmaker_reboot() and returns
- * immediately. The reboot happens asynchronously.
+ * @note This reset and reboot operations will happen asynchronously depending
+ * on the values passed to the API.
  *
- * @param[in] seconds Time in seconds after which the chip should reboot.
+ * @param[in] reset_seconds Time in seconds after which the reset should get triggered.
+ * This will help other modules take some actions before the device actually resets.
+ * If set to zero, the operation would be performed immediately.
+ * @param[in] reboot_seconds Time in seconds after which the device should reboot. If set
+ * to negative value, the device will not reboot at all.
  *
  * @return ESP_OK on success.
  * @return error on failure.
  */
-esp_err_t esp_rmaker_wifi_reset(uint8_t seconds);
+esp_err_t esp_rmaker_wifi_reset(int8_t reset_seconds, int8_t reboot_seconds);
 
 /** Reset to factory defaults and reboot
  *
- * This will clear entire NVS partition and trigger a reboot.
- * The \ref RMAKER_EVENT_FACTORY_RESET event is triggered after the reset.
+ * This will clear entire NVS partition and (optionally) trigger a reboot.
+ * The \ref RMAKER_EVENT_FACTORY_RESET event is triggered when this API is called.
+ * The actual reset will happen after a delay if reset_seconds is not zero.
  *
- * @note This function internally calls esp_rmaker_reboot() and returns.
- * The reboot happens asynchronously.
+ * @note This reset and reboot operations will happen asynchronously depending
+ * on the values passed to the API.
  *
- * @param[in] seconds Time in seconds after which the chip should reboot.
+ * @param[in] reset_seconds Time in seconds after which the reset should get triggered.
+ * This will help other modules take some actions before the device actually resets.
+ * If set to zero, the operation would be performed immediately.
+ * @param[in] reboot_seconds Time in seconds after which the device should reboot. If set
+ * to negative value, the device will not reboot at all.
  *
  * @return ESP_OK on success.
  * @return error on failure.
  */
-esp_err_t esp_rmaker_factory_reset(uint8_t seconds);
+esp_err_t esp_rmaker_factory_reset(int8_t reset_seconds, int8_t reboot_seconds);
 
 /** Initialize time synchronization
  *
@@ -141,17 +151,6 @@ esp_err_t esp_rmaker_time_set_timezone_posix(const char *tz_posix);
  * @return error on failure
  */
 esp_err_t esp_rmaker_time_set_timezone(const char *tz);
-
-/** Enable Timezone Service
- *
- * This enables the ESP RainMaker standard timezone service which can be used to set
- * timezone, either in POSIX or location string format. Please refer the specifications
- * for additional details.
- *
- * @return ESP_OK on success
- * @return error on failure
- */
-esp_err_t esp_rmaker_timezone_service_enable(void);
 
 /** Get the current POSIX timezone
  *
