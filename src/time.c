@@ -17,6 +17,7 @@
 #include <lwip/apps/sntp.h>
 
 #include <esp_rmaker_utils.h>
+#include <esp_rmaker_common_events.h>
 
 static const char *TAG = "esp_rmaker_time";
 
@@ -110,6 +111,8 @@ esp_err_t esp_rmaker_time_set_timezone_posix(const char *tz_posix)
     if (err == ESP_OK) {
         setenv("TZ", tz_posix, 1);
         tzset();
+        esp_event_post(RMAKER_COMMON_EVENT, RMAKER_EVENT_TZ_POSIX_CHANGED,
+                (void *)tz_posix, strlen(tz_posix) + 1, portMAX_DELAY);
         esp_rmaker_print_current_time();
     }
     return err;
@@ -123,6 +126,8 @@ esp_err_t esp_rmaker_time_set_timezone(const char *tz)
     }
     esp_err_t err = esp_rmaker_time_set_timezone_posix(tz_posix);
     if (err == ESP_OK) {
+        esp_event_post(RMAKER_COMMON_EVENT, RMAKER_EVENT_TZ_CHANGED, (void *)tz,
+                strlen(tz) + 1, portMAX_DELAY);
         err = __esp_rmaker_time_set_nvs(ESP_RMAKER_TZ_NVS_NAME, tz);
     }
     return err;
