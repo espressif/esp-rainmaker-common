@@ -44,7 +44,8 @@ static esp_rmaker_work_queue_state_t queue_state;
 static void esp_rmaker_handle_work_queue(void)
 {
     esp_rmaker_work_queue_entry_t work_queue_entry;
-    BaseType_t ret = xQueueReceive(work_queue, &work_queue_entry, 0);
+    /* 2 sec delay to prevent spinning */
+    BaseType_t ret = xQueueReceive(work_queue, &work_queue_entry, 2000 / portTICK_RATE_MS);
     while (ret == pdTRUE) {
         work_queue_entry.work_fn(work_queue_entry.priv_data);
         ret = xQueueReceive(work_queue, &work_queue_entry, 0);
@@ -56,8 +57,6 @@ static void esp_rmaker_work_queue_task(void *param)
     ESP_LOGI(TAG, "RainMaker Work Queue task started.");
     while (queue_state != WORK_QUEUE_STATE_STOP_REQUESTED) {
         esp_rmaker_handle_work_queue();
-        /* 2 sec delay to prevent spinning */
-        vTaskDelay(2000 / portTICK_RATE_MS);
     }
     ESP_LOGI(TAG, "Stopping Work Queue task");
     queue_state = WORK_QUEUE_STATE_INIT_DONE;
