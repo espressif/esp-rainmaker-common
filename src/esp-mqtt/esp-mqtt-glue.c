@@ -111,23 +111,29 @@ esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subscribe_c
     return ESP_FAIL;
 }
 
+static void unsubscribe_helper(esp_mqtt_glue_subscription_t **subscription)
+{
+    if (subscription && *subscription) {
+        if (esp_mqtt_client_unsubscribe(mqtt_data->mqtt_client, (*subscription)->topic) < 0) {
+            ESP_LOGW(TAG, "Could not unsubscribe from topic: %s", (*subscription)->topic);
+        }
+        free((*subscription)->topic);
+        free(*subscription);
+        *subscription = NULL;
+    }
+}
+
 esp_err_t esp_mqtt_glue_unsubscribe(const char *topic)
 {
     if (!mqtt_data || !topic) {
         return ESP_FAIL;
-    }
-    int ret = esp_mqtt_client_unsubscribe(mqtt_data->mqtt_client, topic);
-    if (ret < 0) {
-        ESP_LOGW(TAG, "Could not unsubscribe from topic: %s", topic);
     }
     esp_mqtt_glue_subscription_t **subscriptions = mqtt_data->subscriptions;
     int i;
     for (i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
         if (subscriptions[i]) {
             if (strncmp(topic, subscriptions[i]->topic, strlen(topic)) == 0) {
-                free(subscriptions[i]->topic);
-                free(subscriptions[i]);
-                subscriptions[i] = NULL;
+                unsubscribe_helper(&subscriptions[i]);
                 return ESP_OK;
             }
         }
@@ -276,7 +282,7 @@ esp_err_t esp_mqtt_glue_connect(void)
     return ESP_OK;
 }
 
-static void esp_mqtt_glue_unsubscribe_all()
+static void esp_mqtt_glue_unsubscribe_all(void)
 {
     if (!mqtt_data) {
         return;
@@ -284,7 +290,7 @@ static void esp_mqtt_glue_unsubscribe_all()
     int i;
     for (i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
         if (mqtt_data->subscriptions[i]) {
-            esp_mqtt_glue_unsubscribe(mqtt_data->subscriptions[i]->topic);
+            unsubscribe_helper(&(mqtt_data->subscriptions[i]));
         }
     }
 }
@@ -350,9 +356,22 @@ esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
     return ESP_OK;
 }
 
+void esp_mqtt_glue_deinit(void)
+{
+    esp_mqtt_glue_unsubscribe_all();
+    if (mqtt_data && mqtt_data->mqtt_client) {
+        esp_mqtt_client_destroy(mqtt_data->mqtt_client);
+    }
+    if (mqtt_data) {
+        free(mqtt_data);
+        mqtt_data = NULL;
+    }
+}
+
 esp_err_t esp_rmaker_mqtt_glue_setup(esp_rmaker_mqtt_config_t *mqtt_config)
 {
     mqtt_config->init           = esp_mqtt_glue_init;
+    mqtt_config->deinit         = esp_mqtt_glue_deinit;
     mqtt_config->connect        = esp_mqtt_glue_connect;
     mqtt_config->disconnect     = esp_mqtt_glue_disconnect;
     mqtt_config->publish        = esp_mqtt_glue_publish;
