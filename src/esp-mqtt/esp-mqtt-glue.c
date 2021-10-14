@@ -235,6 +235,12 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             ESP_LOGD(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_PUBLISHED, &event->msg_id, sizeof(event->msg_id), portMAX_DELAY);
             break;
+#ifdef CONFIG_MQTT_REPORT_DELETED_MESSAGES
+        case MQTT_EVENT_DELETED:
+            ESP_LOGD(TAG, "MQTT_EVENT_DELETED, msg_id=%d", event->msg_id);
+            esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_MSG_DELETED, &event->msg_id, sizeof(event->msg_id), portMAX_DELAY);
+            break;
+#endif /* CONFIG_MQTT_REPORT_DELETED_MESSAGES */
         case MQTT_EVENT_DATA: {
             ESP_LOGD(TAG, "MQTT_EVENT_DATA");
             static esp_mqtt_glue_long_data_t *long_data;
