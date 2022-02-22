@@ -45,7 +45,7 @@ static void esp_rmaker_handle_work_queue(void)
 {
     esp_rmaker_work_queue_entry_t work_queue_entry;
     /* 2 sec delay to prevent spinning */
-    BaseType_t ret = xQueueReceive(work_queue, &work_queue_entry, 2000 / portTICK_RATE_MS);
+    BaseType_t ret = xQueueReceive(work_queue, &work_queue_entry, 2000 / portTICK_PERIOD_MS);
     while (ret == pdTRUE) {
         work_queue_entry.work_fn(work_queue_entry.priv_data);
         ret = xQueueReceive(work_queue, &work_queue_entry, 0);
