@@ -320,6 +320,10 @@ static const char *alpn_protocols[] = { "x-amzn-mqtt-ca", NULL };
 #endif /* ESP_RMAKER_MQTT_USE_PORT_443 */
 esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
 {
+#ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
+    const char *username = esp_get_aws_ppi();
+    ESP_LOGI(TAG, "AWS PPI: %s", username);
+#endif
     if (mqtt_data) {
         ESP_LOGE(TAG, "MQTT already initialized");
         return ESP_OK;
@@ -354,8 +358,7 @@ esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
         .disable_clean_session = 1,
 #endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */
 #ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
-#define RMAKER_MQTT_USERNAME    CONFIG_ESP_RMAKER_MQTT_USERNAME
-        .username = RMAKER_MQTT_USERNAME,
+        .username = username,
 #endif
     };
     mqtt_data->mqtt_client = esp_mqtt_client_init(&mqtt_client_cfg);
