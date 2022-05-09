@@ -22,10 +22,9 @@
 #include <esp_event.h>
 #include <esp_rmaker_common_events.h>
 #include <esp_rmaker_mqtt_glue.h>
-
 #include <esp_idf_version.h>
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 1, 0)
-// Features supported in 4.1
+// Features supported in 4.1+
 
 #ifdef CONFIG_ESP_RMAKER_MQTT_PORT_443
 #define ESP_RMAKER_MQTT_USE_PORT_443
@@ -34,10 +33,26 @@
 #else
 
 #ifdef CONFIG_ESP_RMAKER_MQTT_PORT_443
-#warning "Port 443 not supported in idf versions below 4.1. Using 8883 instead."
+#warning "Certificate Bundle not supported below IDF v4.4. Using provided certificate instead."
 #endif
 
 #endif /* !IDF4.1 */
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)
+// Features supported in 4.4+
+
+#ifdef CONFIG_ESP_RMAKER_MQTT_USE_CERT_BUNDLE
+#define ESP_RMAKER_MQTT_USE_CERT_BUNDLE
+#include <esp_crt_bundle.h>
+#endif
+
+#else
+
+#ifdef CONFIG_ESP_RMAKER_MQTT_USE_CERT_BUNDLE
+#warning "Certificate Bundle not supported below 4.4. Using provided certificate instead."
+#endif
+
+#endif /* !IDF4.4 */
 
 static const char *TAG = "esp_mqtt_glue";
 
@@ -347,7 +362,11 @@ esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
 #else
         .port = 8883,
 #endif /* !ESP_RMAKER_MQTT_USE_PORT_443 */
+#ifdef ESP_RMAKER_MQTT_USE_CERT_BUNDLE
+        .crt_bundle_attach = esp_crt_bundle_attach,
+#else
         .cert_pem = (const char *)conn_params->server_cert,
+#endif
         .client_cert_pem = (const char *)conn_params->client_cert,
         .client_key_pem = (const char *)conn_params->client_key,
         .client_id = (const char *)conn_params->client_id,

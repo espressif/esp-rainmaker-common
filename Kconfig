@@ -75,6 +75,14 @@ menu "ESP RainMaker Common"
         help
             Product SKU. Please get in touch with your Espressif/AWS representative for more info.
 
+    config ESP_RMAKER_MQTT_USE_CERT_BUNDLE
+        bool "Use Certificate Bundle"
+        default y
+        help
+            Use Certificate Bundle for server authentication. Enabling this is recommended to safeguard
+            against any changes in the server certificates in future. This has an impact on the binary
+            size as well as heap requirement.
+
     config ESP_RMAKER_WORK_QUEUE_TASK_STACK
         int "ESP RainMaker Work Queue Task stack"
         default 4096
