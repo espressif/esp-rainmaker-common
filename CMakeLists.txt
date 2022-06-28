@@ -1,4 +1,4 @@
-set(srcs "src/work_queue.c" "src/factory.c" "src/time.c" "src/timezone.c" "src/utils.c" "src/create_APN3_PPI_string.c")
+set(srcs "src/work_queue.c" "src/factory.c" "src/time.c" "src/timezone.c" "src/utils.c" "src/create_APN3_PPI_string.c" "src/cmd_resp.c")
 set(priv_req "mqtt" "nvs_flash")
 
 #if(CONFIG_ESP_RMAKER_LIB_ESP_MQTT)
