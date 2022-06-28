@@ -97,6 +97,15 @@ esp_err_t esp_rmaker_work_queue_init(void)
 
 esp_err_t esp_rmaker_work_queue_deinit(void)
 {
+    if (queue_state != WORK_QUEUE_STATE_STOP_REQUESTED) {
+        esp_rmaker_work_queue_stop();
+    }
+
+    while (queue_state == WORK_QUEUE_STATE_STOP_REQUESTED) {
+        ESP_LOGI(TAG, "Waiting for esp_rmaker_work_queue being stopped...");
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+
     if (queue_state == WORK_QUEUE_STATE_DEINIT) {
         return ESP_OK;
     } else if (queue_state != WORK_QUEUE_STATE_INIT_DONE) {
@@ -107,6 +116,7 @@ esp_err_t esp_rmaker_work_queue_deinit(void)
         work_queue = NULL;
         queue_state = WORK_QUEUE_STATE_DEINIT;
     }
+    ESP_LOGI(TAG, "esp_rmaker_work_queue was successfully deinitialized");
     return ESP_OK;
 }
 
