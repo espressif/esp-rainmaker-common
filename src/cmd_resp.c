@@ -92,6 +92,9 @@ static int esp_rmaker_get_tlv_length(const uint8_t *buf, int buflen, uint8_t typ
         buflen -= (2 + buf[curlen + 1]);
         curlen += (2 + buf[curlen + 1]);
     }
+    if (found) {
+        return val_len;
+    }
     return -1;
 }
 
@@ -129,6 +132,9 @@ static int esp_rmaker_get_value_from_tlv(const uint8_t *buf, int buflen, uint8_t
         /* buf[curlen +1] will give the Length */
         buflen -= (2 + buf[curlen + 1]);
         curlen += (2 + buf[curlen + 1]);
+    }
+    if (found) {
+        return val_len;
     }
     return -1;
 }
