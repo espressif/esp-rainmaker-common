@@ -110,22 +110,14 @@ int validate_sku_code(char *silicon_sku_code)
       /* 
        * codes for partner 1 
        */
-      {  "ES00" },
-      {  "ES01" },
-      {  "ES02" },
-      {  "ES03" },
-      {  "ES04" },
-      {  "ES05" },
-      {  "ES06" },
-      {  "ES07" },
-      {  "ES08" },
-      {  "ES09" },
-      {  "ES10" },
-      {  "ES11" },
-      {  "ES12" },
-      {  "ES13" },
-      {  "ES14" },
-      {  "ES15" },
+      {  "ES00" }, /* Older Default */
+      {  "EX00" }, /* Default */
+      {  "EX01" }, /* ESP32-C3, including 8685 */
+      {  "EX02" }, /* ESP32-C2, including 8684 */
+      {  "EX03" }, /* ESP32-S3 */
+      {  "EX04" }, /* ESP32 */
+      {  "EX05" }, /* ESP32-C5 */
+      {  "EX06" }, /* ESP32-S2 */
       /*
        * add new entries above in any order
        */

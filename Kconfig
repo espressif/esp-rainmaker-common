@@ -71,7 +71,7 @@ menu "ESP RainMaker Common"
     config ESP_RMAKER_MQTT_PRODUCT_SKU
         string "Product SKU"
         depends on ESP_RMAKER_MQTT_SEND_USERNAME
-        default "ES00"
+        default "EX00"
         help
             Product SKU. Please get in touch with your Espressif/AWS representative for more info.
 
