@@ -80,7 +80,7 @@ typedef struct {
     char *topic;
 } esp_mqtt_glue_long_data_t;
 
-void esp_mqtt_glue_deinit(void);
+static void esp_mqtt_glue_deinit(void);
 
 static void esp_mqtt_glue_subscribe_callback(const char *topic, int topic_len, const char *data, int data_len)
 {
@@ -96,7 +96,7 @@ static void esp_mqtt_glue_subscribe_callback(const char *topic, int topic_len, c
     }
 }
 
-esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subscribe_cb_t cb, uint8_t qos, void *priv_data)
+static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subscribe_cb_t cb, uint8_t qos, void *priv_data)
 {
     if ( !mqtt_data || !topic || !cb) {
         return ESP_FAIL;
@@ -141,7 +141,7 @@ static void unsubscribe_helper(esp_mqtt_glue_subscription_t **subscription)
     }
 }
 
-esp_err_t esp_mqtt_glue_unsubscribe(const char *topic)
+static esp_err_t esp_mqtt_glue_unsubscribe(const char *topic)
 {
     if (!mqtt_data || !topic) {
         return ESP_FAIL;
@@ -159,7 +159,7 @@ esp_err_t esp_mqtt_glue_unsubscribe(const char *topic)
     return ESP_FAIL;
 }
 
-esp_err_t esp_mqtt_glue_publish(const char *topic, void *data, size_t data_len, uint8_t qos, int *msg_id)
+static esp_err_t esp_mqtt_glue_publish(const char *topic, void *data, size_t data_len, uint8_t qos, int *msg_id)
 {
     if (!mqtt_data || !topic || !data) {
         return ESP_FAIL;
@@ -302,7 +302,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 #endif
 }
 
-esp_err_t esp_mqtt_glue_connect(void)
+static esp_err_t esp_mqtt_glue_connect(void)
 {
     if (!mqtt_data) {
         return ESP_FAIL;
@@ -332,7 +332,7 @@ static void esp_mqtt_glue_unsubscribe_all(void)
     }
 }
 
-esp_err_t esp_mqtt_glue_disconnect(void)
+static esp_err_t esp_mqtt_glue_disconnect(void)
 {
     if (!mqtt_data) {
         return ESP_FAIL;
@@ -349,7 +349,7 @@ esp_err_t esp_mqtt_glue_disconnect(void)
 #ifdef ESP_RMAKER_MQTT_USE_PORT_443
 static const char *alpn_protocols[] = { "x-amzn-mqtt-ca", NULL };
 #endif /* ESP_RMAKER_MQTT_USE_PORT_443 */
-esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
+static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
 {
 #ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
     const char *username = esp_get_aws_ppi();
@@ -451,7 +451,7 @@ esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
     return ESP_OK;
 }
 
-void esp_mqtt_glue_deinit(void)
+static void esp_mqtt_glue_deinit(void)
 {
     esp_mqtt_glue_unsubscribe_all();
     if (mqtt_data && mqtt_data->mqtt_client) {
