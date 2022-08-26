@@ -1,11 +1,11 @@
 /*
- * APN3 PPI string generator - sample code 
+ * APN3 PPI string generator - sample code
  *
- * NOTE: All code is provided as sample code for informational purposes only, and should not be used for any testing or production workloads. 
- * All code is provided “as is” and AWS expressly disclaims all warranties, including, without limitation: any implied warranties of 
- * noninfringement, merchantability, or fitness for a particular purpose; any warranty that operation of the code will be error-free 
- * or free of harmful components; or any warranty arising out of any course of dealing or usage of trade. In no event shall AWS or 
- * any of its affiliates be liable for any damages arising out of the use of this code, including, without limitation, any direct, 
+ * NOTE: All code is provided as sample code for informational purposes only, and should not be used for any testing or production workloads.
+ * All code is provided “as is” and AWS expressly disclaims all warranties, including, without limitation: any implied warranties of
+ * noninfringement, merchantability, or fitness for a particular purpose; any warranty that operation of the code will be error-free
+ * or free of harmful components; or any warranty arising out of any course of dealing or usage of trade. In no event shall AWS or
+ * any of its affiliates be liable for any damages arising out of the use of this code, including, without limitation, any direct,
  * indirect, special, incidental or consequential damages.
  */
 #include <stdio.h>
@@ -92,7 +92,7 @@ char __attribute__((weak)) *platform_get_silicon_sku_code()
 
 /*
  * validate_sku_code takes as input the 4 character SKU code and validates it.
- * 
+ *
  * Returns
  * VALID if valid, else INVALID
  */
@@ -105,10 +105,10 @@ int validate_sku_code(char *silicon_sku_code)
       char *skucode; /* code corresponding to sku name */
   } sku_item;
 
-  static sku_item skutable[] = 
+  static sku_item skutable[] =
   {
-      /* 
-       * codes for partner 1 
+      /*
+       * codes for partner 1
        */
       {  "ES00" }, /* Older Default */
       {  "EX00" }, /* Default */
@@ -124,12 +124,12 @@ int validate_sku_code(char *silicon_sku_code)
       { NULL }  /* this must be the last entry */
   };
 
-  /* 
-   * linear search for a matching silicon sku code entry 
+  /*
+   * linear search for a matching silicon sku code entry
    */
-  for (sku_item *p = skutable; p->skucode != NULL; p++) 
+  for (sku_item *p = skutable; p->skucode != NULL; p++)
   {
-      if (strcmp(p->skucode, silicon_sku_code) == 0) 
+      if (strcmp(p->skucode, silicon_sku_code) == 0)
       {   /* found match */
           retval = VALID;
           break;
@@ -140,7 +140,7 @@ int validate_sku_code(char *silicon_sku_code)
 
 /*
  * validate_platform_inputs
- * 
+ *
  * Returns
  * VALID if inputs are valid, INVALID otherwise
  */
@@ -148,7 +148,7 @@ int validate_platform_inputs(char *product_name, char *product_uid, char *produc
 {
   int retval = INVALID;
 
-  if ( (strlen(product_name) + strlen(product_uid) + strlen(product_version)) <= MAX_LEN_FIELDS_1_2_3) 
+  if ( (strlen(product_name) + strlen(product_uid) + strlen(product_version)) <= MAX_LEN_FIELDS_1_2_3)
   {   /* field 1,2,3 length check passed */
 
       if (validate_sku_code(silicon_sku_code) == VALID)
@@ -160,7 +160,7 @@ int validate_platform_inputs(char *product_name, char *product_uid, char *produc
           ESP_LOGE(TAG, "Error: Invalid sku code");
       }
   }
-  else 
+  else
   {   /* invalid string length */
       ESP_LOGE(TAG, "Error: Invalid field(s) length");
   }
@@ -175,14 +175,14 @@ int validate_platform_inputs(char *product_name, char *product_uid, char *produc
  * Inputs:
  * product_name = pointer to a string holding the product name.
  * product_uid = pointer to a string holding the product UID (unique id)
- * product_version = version number of the product. 
+ * product_version = version number of the product.
  * silicon_sku_code = pointer to a string holding a valid SKU code as specified in the guide.
  *
  * Return values
  * NULL if there is an error and the PPI string could not be generated, otherwise the PPI string is returned.
  */
 char * create_APN_PPI_string(char *product_name, char *product_uid, char *product_version, char *silicon_sku_code)
-{ 
+{
     char *retval = NULL;
     static char ppistring[MAX_PPI_STRING_LEN + 1];
 
@@ -192,7 +192,7 @@ char * create_APN_PPI_string(char *product_name, char *product_uid, char *produc
     /*
      * Validate inputs
      */
-    if (validate_platform_inputs(product_name, product_uid, product_version, silicon_sku_code)) 
+    if (validate_platform_inputs(product_name, product_uid, product_version, silicon_sku_code))
     { /* valid inputs - build the string */
       snprintf(ppistring, sizeof(ppistring),"%s%s%s%s%s%s%s%s%s%s%s",
               PPI_PREFIX_1, PPI_PREFIX_2, PPI_RESERVED, PPI_PLATFORM, silicon_sku_code,
@@ -200,33 +200,33 @@ char * create_APN_PPI_string(char *product_name, char *product_uid, char *produc
               product_uid);
       retval = ppistring;
     }
-    else 
+    else
     { /* error - some inputs are not valid */
       ESP_LOGE(TAG, "Error: Some inputs are not valid");
-    } 
+    }
     return(retval);
 }
 
 
 /*
- * main - setup values for your platform and invoke string generator. 
+ * main - setup values for your platform and invoke string generator.
  */
 const char __attribute__((weak)) *esp_get_aws_ppi(void)
 {
     char *ppistring = NULL;
 
-    ppistring = create_APN_PPI_string( platform_get_product_name(), 
-                                       platform_get_product_UID(), 
-                                       platform_get_product_version(), 
+    ppistring = create_APN_PPI_string( platform_get_product_name(),
+                                       platform_get_product_UID(),
+                                       platform_get_product_version(),
                                        platform_get_silicon_sku_code() );
 
     if (ppistring != NULL)
     {
       ESP_LOGD(TAG, "PPI inputs pass all checks. String value is shown below:\n\n%s", ppistring);
     }
-    else 
+    else
     { /* error */
       ESP_LOGE(TAG, "Error creating PPI string");
-    } 
+    }
     return ppistring;
 }

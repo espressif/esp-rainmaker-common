@@ -11,7 +11,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+
 #include <string.h>
+#include <inttypes.h>
 #include <esp_log.h>
 #include <nvs.h>
 #include <lwip/apps/sntp.h>
@@ -43,7 +45,7 @@ esp_err_t esp_rmaker_get_local_time_str(char *buf, size_t buf_len)
     strftime(strftime_buf, sizeof(strftime_buf), "%c %z[%Z]", &timeinfo);
     size_t print_size = snprintf(buf, buf_len, "%s, DST: %s", strftime_buf, timeinfo.tm_isdst ? "Yes" : "No");
     if (print_size >= buf_len) {
-        ESP_LOGE(TAG, "Buffer size %d insufficient for localtime string. REquired size: %d", buf_len, print_size);
+        ESP_LOGE(TAG, "Buffer size %d insufficient for localtime string. Required size: %d", buf_len, print_size);
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
@@ -220,7 +222,7 @@ esp_err_t esp_rmaker_time_wait_for_sync(uint32_t ticks_to_wait)
 
     /* Check if ticks_to_wait expired and time is not synchronized yet. */
     if (esp_rmaker_time_check() == false) {
-        ESP_LOGE(TAG, "Time not synchronized within the provided ticks: %u", ticks_to_wait);
+        ESP_LOGE(TAG, "Time not synchronized within the provided ticks: %" PRIu32, ticks_to_wait);
         return ESP_FAIL;
     }
 
