@@ -17,7 +17,6 @@
 #include <sdkconfig.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <freertos/event_groups.h>
 #include <esp_log.h>
 #include <mqtt_client.h>
 #include <esp_event.h>
@@ -71,9 +70,6 @@ typedef struct {
     esp_mqtt_glue_subscription_t *subscriptions[MAX_MQTT_SUBSCRIPTIONS];
 } esp_mqtt_glue_data_t;
 esp_mqtt_glue_data_t *mqtt_data;
-
-const int MQTT_CONNECTED_EVENT = BIT1;
-static EventGroupHandle_t mqtt_event_group;
 
 typedef struct {
     char *data;
@@ -245,7 +241,6 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
                     esp_mqtt_client_subscribe(event->client, mqtt_data->subscriptions[i]->topic, 1);
                 }
             }
-            xEventGroupSetBits(mqtt_event_group, MQTT_CONNECTED_EVENT);
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_CONNECTED, NULL, 0, portMAX_DELAY);
             break;
         case MQTT_EVENT_DISCONNECTED:
@@ -308,14 +303,11 @@ static esp_err_t esp_mqtt_glue_connect(void)
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "Connecting to %s", mqtt_data->conn_params->mqtt_host);
-    mqtt_event_group = xEventGroupCreate();
     esp_err_t ret = esp_mqtt_client_start(mqtt_data->mqtt_client);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "esp_mqtt_client_start() failed with err = %d", ret);
         return ret;
     }
-    ESP_LOGI(TAG, "Waiting for MQTT connection. This may take time.");
-    xEventGroupWaitBits(mqtt_event_group, MQTT_CONNECTED_EVENT, false, true, portMAX_DELAY);
     return ESP_OK;
 }
 
