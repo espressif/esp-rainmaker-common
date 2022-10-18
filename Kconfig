@@ -35,14 +35,14 @@ menu "ESP RainMaker Common"
         int
         default 1 if ESP_RMAKER_MQTT_PORT_443
         default 2 if ESP_RMAKER_MQTT_PORT_8883
-    
+
     config ESP_RMAKER_MQTT_PERSISTENT_SESSION
         bool "Use Persisent MQTT sessions"
         default n
         help
             Use persistent MQTT sessions. This improves reliability as QOS1 messages missed
             out due to some network issue are received after the MQTT reconnects. The broker
-            caches messages for a period of upto 1hour. However, a side-effect of this is that
+            caches messages for a period of upto 1 hour. However, a side-effect of this is that
             messages can be received at unexpected time. Enable this option only if it suits
             your use case. Please read MQTT specs to understand more about persistent sessions
             and the cleanSession flag.
@@ -82,6 +82,12 @@ menu "ESP RainMaker Common"
             Use Certificate Bundle for server authentication. Enabling this is recommended to safeguard
             against any changes in the server certificates in future. This has an impact on the binary
             size as well as heap requirement.
+
+    config ESP_RMAKER_MAX_MQTT_SUBSCRIPTIONS
+        int "Maximum number of MQTT Subscriptions"
+        default 10
+        help
+            This value controls the maximum number of topics that the device can subscribe to.
 
     config ESP_RMAKER_WORK_QUEUE_TASK_STACK
         int "ESP RainMaker Work Queue Task stack"
