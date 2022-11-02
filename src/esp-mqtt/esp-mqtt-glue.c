@@ -56,7 +56,7 @@
 
 static const char *TAG = "esp_mqtt_glue";
 
-#define MAX_MQTT_SUBSCRIPTIONS      5
+#define MAX_MQTT_SUBSCRIPTIONS      CONFIG_ESP_RMAKER_MAX_MQTT_SUBSCRIPTIONS
 
 typedef struct {
     char *topic;
