@@ -20,6 +20,7 @@
 
 #include <esp_rmaker_utils.h>
 #include <esp_rmaker_common_events.h>
+#include <esp_idf_version.h>
 
 static const char *TAG = "esp_rmaker_time";
 
@@ -34,6 +35,35 @@ static bool init_done = false;
 extern const char *esp_rmaker_tz_db_get_posix_str(const char *name);
 
 #define ESP_RMAKER_DEF_TZ   CONFIG_ESP_RMAKER_DEF_TIMEZONE
+
+int esp_setenv(const char *name, const char *value, int rewrite)
+{
+/* IDF version lower than v4.4.3 not support parse bracket POSIX TZ in newlib.
+   Wrap setenv function to convert bracket POSIX TZ, such as <+08>-8 to TZ-08 */
+#if ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(4, 4, 3)
+#define ESP_TZNAME_MIN 3
+#define ESP_TZNAME_MAX 10
+    if (value) {
+        const char *tzenv = value;
+        if (*tzenv == '<') {
+            ++ tzenv;
+            char tzname[ESP_TZNAME_MIN + 1] = {0};
+            char real_value[6] = {0};
+            int n = 0;
+            if (sscanf(tzenv, "%10[-+0-9A-Za-z]%n", tzname, &n) <= 0 || n < ESP_TZNAME_MIN || n > ESP_TZNAME_MAX || '>' != tzenv[n]) {
+                ESP_LOGW(TAG, "Failed to convert Posix TZ %s", value);
+                goto exit;
+            }
+            tzname[0] = (tzname[0] == '-') ? '+' : '-';
+            sprintf(real_value, "TZ%s", tzname);
+            ESP_LOGI(TAG, "Real Posix TZ is %s", real_value);
+            return setenv(name, real_value, rewrite);
+        }
+    }
+exit:
+#endif
+    return setenv(name, value, rewrite);
+}
 
 esp_err_t esp_rmaker_get_local_time_str(char *buf, size_t buf_len)
 {
@@ -111,7 +141,7 @@ esp_err_t esp_rmaker_time_set_timezone_posix(const char *tz_posix)
 {
     esp_err_t err = __esp_rmaker_time_set_nvs(ESP_RMAKER_TZ_POSIX_NVS_NAME, tz_posix);
     if (err == ESP_OK) {
-        setenv("TZ", tz_posix, 1);
+        esp_setenv("TZ", tz_posix, 1);
         tzset();
         esp_event_post(RMAKER_COMMON_EVENT, RMAKER_EVENT_TZ_POSIX_CHANGED,
                 (void *)tz_posix, strlen(tz_posix) + 1, portMAX_DELAY);
@@ -139,14 +169,14 @@ esp_err_t esp_rmaker_timezone_enable(void)
 {
     char *tz_posix = esp_rmaker_time_get_timezone_posix();
     if (tz_posix) {
-        setenv("TZ", tz_posix, 1);
+        esp_setenv("TZ", tz_posix, 1);
         tzset();
         free(tz_posix);
     } else {
         if (strlen(ESP_RMAKER_DEF_TZ) > 0) {
             const char *tz_def = esp_rmaker_tz_db_get_posix_str(ESP_RMAKER_DEF_TZ);
             if (tz_def) {
-                setenv("TZ", tz_def, 1);
+                esp_setenv("TZ", tz_def, 1);
                 tzset();
                 return ESP_OK;
             } else {
