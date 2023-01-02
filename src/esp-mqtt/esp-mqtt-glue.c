@@ -23,6 +23,7 @@
 #include <esp_rmaker_common_events.h>
 #include <esp_rmaker_mqtt_glue.h>
 #include <esp_idf_version.h>
+#include <esp_rmaker_utils.h>
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 1, 0)
 // Features supported in 4.1+
 
@@ -197,7 +198,7 @@ static esp_mqtt_glue_long_data_t *esp_mqtt_glue_manage_long_data(esp_mqtt_glue_l
             ESP_LOGE(TAG, "Could not allocate memory for esp_mqtt_glue_long_data_t");
             return NULL;
         }
-        long_data->data = calloc(1, event->total_data_len);
+        long_data->data = MEM_CALLOC_EXTRAM(1, event->total_data_len);
         if (!long_data->data) {
             ESP_LOGE(TAG, "Could not allocate %d bytes for received data.", event->total_data_len);
             return esp_mqtt_glue_free_long_data(long_data);
