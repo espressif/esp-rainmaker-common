@@ -74,7 +74,7 @@ static char *__esp_rmaker_time_get_nvs(const char *key)
     }
     size_t len = 0;
     if ((err = nvs_get_blob(handle, key, NULL, &len)) == ESP_OK) {
-        val = calloc(1, len + 1); /* +1 for NULL termination */
+        val = MEM_CALLOC_EXTRAM(1, len + 1); /* +1 for NULL termination */
         if (val) {
             nvs_get_blob(handle, key, val, &len);
         }
