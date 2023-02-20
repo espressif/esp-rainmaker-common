@@ -12,8 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 #pragma once
-#include <stdint.h>
+#include <esp_idf_version.h>
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
+#include <esp_sntp.h>
+#else
 #include <sntp.h>
+#endif
+
+#include <stdint.h>
 #include <esp_err.h>
 #include <esp_heap_caps.h>
 #include <sdkconfig.h>
