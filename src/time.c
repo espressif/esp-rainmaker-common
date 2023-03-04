@@ -165,7 +165,7 @@ static void esp_rmaker_time_sync_cb(struct timeval *tv)
 
 esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
 {
-    if (sntp_enabled()) {
+    if (esp_sntp_enabled()) {
         ESP_LOGI(TAG, "SNTP already initialized.");
         init_done = true;
         return ESP_OK;
@@ -177,9 +177,9 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
         sntp_server_name = config->sntp_server_name;
     }
     ESP_LOGI(TAG, "Initializing SNTP. Using the SNTP server: %s", sntp_server_name);
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, sntp_server_name);
-    sntp_init();
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, sntp_server_name);
+    esp_sntp_init();
     if (config && config->sync_time_cb) {
         sntp_set_time_sync_notification_cb(config->sync_time_cb);
     } else {
