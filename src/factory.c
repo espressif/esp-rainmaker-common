@@ -14,6 +14,7 @@
 #include <esp_log.h>
 #include <nvs_flash.h>
 #include <nvs.h>
+#include <esp_rmaker_utils.h>
 
 static const char *TAG = "esp_rmaker_fctry";
 
@@ -51,7 +52,7 @@ void *esp_rmaker_factory_get(const char *key)
         nvs_close(handle);
         return NULL;
     }
-    void *value = calloc(required_size + 1, 1); /* + 1 for NULL termination */
+    void *value = MEM_CALLOC_EXTRAM(required_size + 1, 1); /* + 1 for NULL termination */
     if (value) {
         nvs_get_blob(handle, key, value, &required_size);
     }
