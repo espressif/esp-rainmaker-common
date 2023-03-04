@@ -16,7 +16,7 @@
 #include <inttypes.h>
 #include <esp_log.h>
 #include <nvs.h>
-#include <lwip/apps/sntp.h>
+#include <esp_sntp.h>
 
 #include <esp_rmaker_utils.h>
 #include <esp_rmaker_common_events.h>
