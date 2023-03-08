@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <esp_idf_version.h>
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
+#include <esp_sntp.h>
+#else
+#include <lwip/apps/sntp.h>
+#endif
+
 #include <string.h>
 #include <inttypes.h>
 #include <esp_log.h>
 #include <nvs.h>
-#include <lwip/apps/sntp.h>
-
 #include <esp_rmaker_utils.h>
 #include <esp_rmaker_common_events.h>
 
@@ -165,7 +170,11 @@ static void esp_rmaker_time_sync_cb(struct timeval *tv)
 
 esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
 {
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
+    if (esp_sntp_enabled()) {
+#else
     if (sntp_enabled()) {
+#endif
         ESP_LOGI(TAG, "SNTP already initialized.");
         init_done = true;
         return ESP_OK;
@@ -177,9 +186,15 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
         sntp_server_name = config->sntp_server_name;
     }
     ESP_LOGI(TAG, "Initializing SNTP. Using the SNTP server: %s", sntp_server_name);
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, sntp_server_name);
+    esp_sntp_init();
+#else
     sntp_setoperatingmode(SNTP_OPMODE_POLL);
     sntp_setservername(0, sntp_server_name);
     sntp_init();
+#endif
     if (config && config->sync_time_cb) {
         sntp_set_time_sync_notification_cb(config->sync_time_cb);
     } else {
