@@ -38,6 +38,8 @@ typedef struct {
     char *client_key;
     /** Server Certificate in NULL terminated PEM format */
     char *server_cert;
+    /** Pointer for digital signature peripheral context */
+    void *ds_data;
 } esp_rmaker_mqtt_conn_params_t;
 
 /** MQTT Get Connection Parameters function prototype
