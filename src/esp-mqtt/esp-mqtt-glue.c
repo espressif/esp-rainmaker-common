@@ -395,6 +395,7 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
             .authentication = {
                 .certificate = (const char *)conn_params->client_cert,
                 .key = (const char *)conn_params->client_key,
+                .ds_data = conn_params->ds_data
             },
         },
         .session = {
