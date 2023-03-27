@@ -60,6 +60,23 @@ void *esp_rmaker_factory_get(const char *key)
     return value;
 }
 
+size_t esp_rmaker_factory_get_size(const char *key)
+{
+    nvs_handle handle;
+    esp_err_t err;
+    if ((err = nvs_open_from_partition(RMAKER_FACTORY_PART, RMAKER_FACTORY_NAMESPACE,
+                                NVS_READONLY, &handle)) != ESP_OK) {
+        ESP_LOGD(TAG, "NVS open for %s %s %s failed with error %d", RMAKER_FACTORY_PART, RMAKER_FACTORY_NAMESPACE, key, err);
+        return 0;
+    }
+    size_t required_size = 0;
+    if ((err = nvs_get_blob(handle, key, NULL, &required_size)) != ESP_OK) {
+        ESP_LOGD(TAG, "Failed to read key %s with error %d size %d", key, err, required_size);
+    }
+    nvs_close(handle);
+    return required_size;
+}
+
 esp_err_t esp_rmaker_factory_set(const char *key, void *value, size_t len)
 {
     nvs_handle handle;
