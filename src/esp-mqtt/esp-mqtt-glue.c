@@ -384,6 +384,7 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
                 .crt_bundle_attach = esp_crt_bundle_attach,
 #else
                 .certificate = (const char *)conn_params->server_cert,
+                .certificate_len = conn_params->server_cert_len,
 #endif
             }
         },
@@ -394,7 +395,9 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
             .client_id = (const char *)conn_params->client_id,
             .authentication = {
                 .certificate = (const char *)conn_params->client_cert,
+                .certificate_len = conn_params->client_cert_len,
                 .key = (const char *)conn_params->client_key,
+                .key_len = conn_params->client_key_len,
                 .ds_data = conn_params->ds_data
             },
         },
@@ -418,9 +421,12 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
         .crt_bundle_attach = esp_crt_bundle_attach,
 #else
         .cert_pem = (const char *)conn_params->server_cert,
+        .cert_len = conn_params->server_cert_len,
 #endif
         .client_cert_pem = (const char *)conn_params->client_cert,
+        .client_cert_len = conn_params->client_cert_len,
         .client_key_pem = (const char *)conn_params->client_key,
+        .client_key_len = conn_params->client_key_len,
         .client_id = (const char *)conn_params->client_id,
         .keepalive = 120,
         .event_handle = mqtt_event_handler,
