@@ -112,6 +112,6 @@ esp_err_t esp_rmaker_common_console_init()
         return ret;
     }
 
-    register_commands();
+    esp_rmaker_common_register_commands();
     return ESP_OK;
 }
