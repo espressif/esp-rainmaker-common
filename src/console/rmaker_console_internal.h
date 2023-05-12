@@ -6,4 +6,4 @@
 
 #pragma once
 
-void register_commands(void);
+void esp_rmaker_common_register_commands(void);

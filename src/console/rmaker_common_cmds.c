@@ -341,7 +341,7 @@ static void register_time_commands()
     esp_console_cmd_register(&tz_set_cmd);
 }
 
-void register_commands()
+void esp_rmaker_common_register_commands()
 {
     static bool registered = false;
     if (registered) {
