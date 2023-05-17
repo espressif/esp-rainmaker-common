@@ -11,10 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+#include <string.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
 #include <nvs.h>
 #include <esp_rmaker_utils.h>
+#include <esp_partition.h>
 
 static const char *TAG = "esp_rmaker_fctry";
 
@@ -28,7 +30,28 @@ esp_err_t esp_rmaker_factory_init(void)
         ESP_LOGW(TAG, "ESP RainMaker Storage already initialized");
         return ESP_OK;
     }
-    esp_err_t err = nvs_flash_init_partition(RMAKER_FACTORY_PART);
+    esp_err_t err = ESP_OK;
+#ifdef CONFIG_ESP_RMAKER_ENCRYPT_FACTORY_PARTITION
+    const char *nvs_keys_partition_name = CONFIG_ESP_RMAKER_FACTORY_NVS_KEYS_PARTITION_NAME;
+    if (strlen(nvs_keys_partition_name) == 0) {
+        nvs_keys_partition_name = NULL;
+    }
+    ESP_LOGI(TAG, "Initialising factory partition in secure mode.");
+    const esp_partition_t* key_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS, nvs_keys_partition_name);
+    if (!key_part) {
+        ESP_LOGE(TAG, "Partition with subtype nvs_keys not found");
+        return ESP_FAIL;
+    }
+    nvs_sec_cfg_t cfg = {};
+    err = nvs_flash_read_security_cfg(key_part, &cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to read NVS security cfg: 0x%x", err);
+        return err;
+    }   
+    err = nvs_flash_secure_init_partition(RMAKER_FACTORY_PART, &cfg);
+#else
+    err = nvs_flash_init_partition(RMAKER_FACTORY_PART);
+#endif
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "NVS Flash init failed");
     } else {
