@@ -146,6 +146,9 @@ static int esp_rmaker_add_tlv(esp_rmaker_tlv_data_t *tlv_data, uint8_t type, int
     if (!tlv_data->bufptr || ((len + 2) > (tlv_data->bufsize - tlv_data->curlen))) {
         return -1;
     }
+    if (len > 0 && val == NULL) {
+        return -1;
+    }
     uint8_t *buf_ptr = (uint8_t *)val;
     int orig_len = tlv_data->curlen;
     do {
@@ -207,9 +210,28 @@ static esp_err_t esp_rmaker_cmd_prepare_response(esp_rmaker_cmd_ctx_t *cmd_ctx, 
     if (response != NULL && response_size != 0) {
         esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_DATA, response_size, response);
     }
-    ESP_LOGI(TAG, "Reporting response of size %d for cmd %d", tlv_data.curlen, cmd_ctx->cmd);
+    ESP_LOGD(TAG, "Generated response of size %d for cmd %d", tlv_data.curlen, cmd_ctx->cmd);
     *output = publish_data;
     *output_len = tlv_data.curlen;
+    return ESP_OK;
+}
+
+esp_err_t esp_rmaker_cmd_prepare_empty_response(void **output, size_t *output_len)
+{
+    size_t publish_size = 6; /* unit16 cmd = 0 (4 bytes in TLV), req_id = empty (2 bytes) */
+    void *publish_data = MEM_CALLOC_EXTRAM(1, publish_size);
+    if (!publish_data) {
+        return ESP_ERR_NO_MEM;
+    }
+    esp_rmaker_tlv_data_t tlv_data;
+    esp_rmaker_tlv_data_init(&tlv_data, publish_data, publish_size);
+    esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_REQ_ID, 0, NULL);
+    uint8_t cmd_buf[2];
+    put_u16_le(cmd_buf, 0);
+    esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_CMD, sizeof(cmd_buf), cmd_buf);
+    *output = publish_data;
+    *output_len = tlv_data.curlen;
+    ESP_LOGD(TAG, "Generated empty response for requesting pending commands.");
     return ESP_OK;
 }
 
