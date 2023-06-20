@@ -416,7 +416,7 @@ esp_err_t esp_rmaker_cmd_resp_parse_response(const void *response, size_t respon
 
     uint8_t status;
     if (esp_rmaker_get_value_from_tlv(response, response_len, ESP_RMAKER_TLV_TYPE_STATUS, &status, sizeof(status)) > 0) {
-        ESP_LOGI(TAG, "RESP: Status: %"PRIu8": %s", status, cmd_status[status]);
+        ESP_LOGI(TAG, "RESP: Status: %" PRIu8 ": %s", status, cmd_status[status]);
     }
 
     char resp_data[200];

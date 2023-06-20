@@ -59,7 +59,7 @@ static int task_dump_cli_handler(int argc, char *argv[])
     num_of_tasks = uxTaskGetSystemState(task_array, num_of_tasks, NULL);
     printf("%s: \tName\tNumber\tPriority\tStackWaterMark\n", TAG);
     for (int i = 0; i < num_of_tasks; i++) {
-        printf("%16s\t%d\t%d\t%"PRIu32"\n",
+        printf("%16s\t%d\t%d\t%" PRIu32 "\n",
                task_array[i].pcTaskName,
                task_array[i].xTaskNumber,
                task_array[i].uxCurrentPriority,
