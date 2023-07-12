@@ -115,6 +115,25 @@ menu "ESP RainMaker Common"
             Namespace in the Factory NVS Partition name which will have the MQTT
             connectivity credentials.
 
+    config ESP_RMAKER_ENCRYPT_FACTORY_PARTITION
+        bool "Encrypt Rainmaker Factory partition"
+        default false
+        depends on NVS_ENCRYPTION
+        help
+            Enable this option if the factory partition is pre-encrypted before flashing and the encryption keys 
+            are flashed in partition with subtype nvs_keys specified by CONFIG_ESP_RMAKER_FACTORY_NVS_KEYS_PARTITION_NAME.
+            If an unencrypted factory partition is flashed, the device would not be able to read its data and 
+            the partition would be considered empty.
+            If nvs encryption keys are not flashed onto device, they would be auto-generated and any previous data 
+            in nvs/factory partition would become invalid.
+
+    config ESP_RMAKER_FACTORY_NVS_KEYS_PARTITION_NAME
+        string "ESP Rainmaker Factory NVS keys partition label"
+        default "nvs_key"
+        depends on ESP_RMAKER_ENCRYPT_FACTORY_PARTITION
+        help
+            Label of the partition of subtype "nvs_keys" used for encrypting/decrypting Rainmaker factory partition.
+
     config ESP_RMAKER_DEF_TIMEZONE
         string "Default Timezone"
         default "Asia/Shanghai"
