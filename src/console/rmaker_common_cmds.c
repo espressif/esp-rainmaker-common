@@ -104,6 +104,7 @@ static int mem_dump_cli_handler(int argc, char *argv[])
 
 static int sock_dump_cli_handler(int argc, char *argv[])
 {
+#if LWIP_IPV4
     int i, ret, used_sockets = 0;
 
     struct sockaddr_in local_sock, peer_sock;
@@ -146,6 +147,9 @@ static int sock_dump_cli_handler(int argc, char *argv[])
         }
     }
     printf("Remaining sockets: %d\n", TOTAL_NUM_SOCKETS - used_sockets);
+#else
+    printf("%s: To use this utility enable: Component config --> LWIP --> Enable IPv4 \n", TAG);
+#endif /* LWIP_IPV4 */
     return 0;
 }
 
