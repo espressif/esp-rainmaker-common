@@ -59,6 +59,7 @@ esp_err_t esp_rmaker_reboot(int8_t seconds)
     return ESP_OK;
 }
 
+#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
 static esp_err_t __esp_rmaker_wifi_reset(int8_t reboot_seconds)
 {
     esp_wifi_restore();
@@ -67,6 +68,7 @@ static esp_err_t __esp_rmaker_wifi_reset(int8_t reboot_seconds)
     }
     return ESP_OK;
 }
+#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
 
 static esp_err_t __esp_rmaker_factory_reset(int8_t reboot_seconds)
 {
@@ -78,6 +80,7 @@ static esp_err_t __esp_rmaker_factory_reset(int8_t reboot_seconds)
     return ESP_OK;
 }
 
+#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
 static void esp_rmaker_wifi_reset_cb(TimerHandle_t handle)
 {
     /* (Hack) Using the timer id as reboot seconds */
@@ -91,7 +94,7 @@ static void esp_rmaker_wifi_reset_cb(TimerHandle_t handle)
     xTimerDelete(reset_timer, 10);
     reset_timer = NULL;
 }
-
+#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
 
 static void esp_rmaker_factory_reset_cb(TimerHandle_t handle)
 {
@@ -136,6 +139,7 @@ static esp_err_t esp_rmaker_start_reset_timer(int8_t reset_seconds, int8_t reboo
 
 esp_err_t esp_rmaker_wifi_reset(int8_t reset_seconds, int8_t reboot_seconds)
 {
+#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
     esp_err_t err = ESP_FAIL;
     /* If reset time is 0, just do it right away */
     if (reset_seconds == 0) {
@@ -148,6 +152,9 @@ esp_err_t esp_rmaker_wifi_reset(int8_t reset_seconds, int8_t reboot_seconds)
         esp_event_post(RMAKER_COMMON_EVENT, RMAKER_EVENT_WIFI_RESET, NULL, 0, portMAX_DELAY);
     }
     return ESP_OK;
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
 }
 
 esp_err_t esp_rmaker_factory_reset(int8_t reset_seconds, int8_t reboot_seconds)

@@ -89,6 +89,22 @@ menu "ESP RainMaker Common"
         help
             This value controls the maximum number of topics that the device can subscribe to.
 
+    choice ESP_RMAKER_NETWORK_PROTOCOL_TYPE
+        prompt "ESP RainMaker Network Type"
+        default ESP_RMAKER_NETWORK_OVER_WIFI
+        help
+            Network protocol type over which the ESP RainMaker will run.
+
+        config ESP_RMAKER_NETWORK_OVER_WIFI
+            # ESP_WIFI_ENABLED was introduced in IDF v5.0
+            depends on IDF_TARGET_ESP32 || IDF_TARGET_ESP32C3 || IDF_TARGET_ESP32S2 || IDF_TARGET_ESP32S3 || ESP_WIFI_ENABLED
+            bool "ESP RainMaker over Wi-Fi"
+
+        config ESP_RMAKER_NETWORK_OVER_THREAD
+            depends on OPENTHREAD_ENABLED
+            bool "ESP RainMaker over Thread"
+    endchoice
+
     config ESP_RMAKER_WORK_QUEUE_TASK_STACK
         int "ESP RainMaker Work Queue Task stack"
         default 4096

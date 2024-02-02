@@ -13,6 +13,9 @@
 #include <sdkconfig.h>
 #include <esp_wifi.h>
 #include <esp_log.h>
+#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_THREAD
+#include <esp_mac.h>
+#endif
 
 static const char *TAG = "aws_ppi";
 
@@ -58,15 +61,26 @@ char __attribute__((weak)) *platform_get_product_name()
  */
 char __attribute__((weak)) *platform_get_product_UID()
 {
+    static char mac_str[13];
+#if defined(CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI)
     uint8_t eth_mac[6];
     esp_err_t err = esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Could not fetch MAC address. Please initialise Wi-Fi first");
         return NULL;
     }
-    static char mac_str[13];
     snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X",
             eth_mac[0], eth_mac[1], eth_mac[2], eth_mac[3], eth_mac[4], eth_mac[5]);
+#elif defined(CONFIG_ESP_RMAKER_NETWORK_OVER_THREAD) /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
+    uint8_t base_mac[6];
+    esp_err_t err = esp_read_mac(base_mac, ESP_MAC_BASE);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Could not fetch base mac");
+        return NULL;
+    }
+    snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X",
+             base_mac[0], base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
+#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_THREAD */
     return mac_str;
 }
 
