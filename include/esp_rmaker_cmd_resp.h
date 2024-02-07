@@ -114,7 +114,7 @@ typedef esp_err_t (*esp_rmaker_cmd_handler_t)(const void *in_data, size_t in_len
  * ESP_RMAKER_USER_ROLE_PRIMARY_USER and ESP_RMAKER_USER_ROLE_SECONDARY_USER
  * @param[in] handler The handler to be invoked when the given command is received.
  * @param[in] free_on_return Flag to indicate of the framework should free the output after it has been sent as response.
- * @paramp[in] priv Optional private data to be passed to the handler.
+ * @param[in] priv Optional private data to be passed to the handler.
  *
  * @return ESP_OK on success.
  * @return error on failure.
@@ -146,7 +146,7 @@ esp_err_t esp_rmaker_cmd_deregister(uint16_t cmd);
 /** Prototype for Command sending function (TESTING only)
  *
  * @param[in] data Pointer to the data to be sent.
- * @param[in[ data_len Size of data to be sent.
+ * @param[in] data_len Size of data to be sent.
  * @param[in] priv Private data, if applicable.
  *
  * @return ESP_OK on success.

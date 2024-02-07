@@ -61,7 +61,7 @@ size_t esp_rmaker_factory_get_size(const char *key);
  * This will write the value for the specified key into factory NVS.
  *
  * @param[in] key The key for the value to be set in factory NVS.
- * @param[in] data Pointer to the value.
+ * @param[in] value Pointer to the value.
  * @param[in] len Length of the value.
  *
  * @return ESP_OK on success.
