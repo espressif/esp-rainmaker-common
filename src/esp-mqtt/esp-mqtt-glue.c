@@ -402,7 +402,7 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
             },
         },
         .session = {
-            .keepalive = 120,
+            .keepalive = CONFIG_ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL,
 #ifdef CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION
             .disable_clean_session = 1,
 #endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */
@@ -428,7 +428,7 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
         .client_key_pem = (const char *)conn_params->client_key,
         .client_key_len = conn_params->client_key_len,
         .client_id = (const char *)conn_params->client_id,
-        .keepalive = 120,
+        .keepalive = CONFIG_ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL,
         .event_handle = mqtt_event_handler,
         .transport = MQTT_TRANSPORT_OVER_SSL,
 #ifdef CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION

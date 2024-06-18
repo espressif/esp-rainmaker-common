@@ -89,6 +89,14 @@ menu "ESP RainMaker Common"
         help
             This value controls the maximum number of topics that the device can subscribe to.
 
+    config ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL
+        int "MQTT Keep Alive Internal"
+        default 120
+        range 30 1200
+        help
+            MQTT Keep Alive Interval. Note that it can take upto 1.5x of keep alive interval for a device
+            to be reported by offline by the MQTT Broker. Change this only if required.
+
     choice ESP_RMAKER_NETWORK_PROTOCOL_TYPE
         prompt "ESP RainMaker Network Type"
         default ESP_RMAKER_NETWORK_OVER_WIFI
