@@ -13,7 +13,9 @@
 // limitations under the License.
 
 #include <esp_idf_version.h>
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+#include <esp_netif_sntp.h>
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
 #include <esp_sntp.h>
 #else
 #include <lwip/apps/sntp.h>
@@ -216,7 +218,15 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
         sntp_server_name = config->sntp_server_name;
     }
     ESP_LOGI(TAG, "Initializing SNTP. Using the SNTP server: %s", sntp_server_name);
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    esp_sntp_config_t sntp_config = ESP_NETIF_SNTP_DEFAULT_CONFIG(CONFIG_ESP_RMAKER_SNTP_SERVER_NAME);
+    sntp_config.start = false;                       // start SNTP service explicitly (after connecting)
+    sntp_config.server_from_dhcp = true;             // accept NTP offers from DHCP server, if any (need to enable *before* connecting)
+    sntp_config.renew_servers_after_new_IP = true;   // let esp-netif update configured SNTP server(s) after receiving DHCP lease
+    sntp_config.index_of_first_server = 1;           // updates from server num 1, leaving server 0 (from DHCP) intact
+    sntp_config.sync_cb = esp_rmaker_time_sync_cb; // only if we need the notification function
+    esp_netif_sntp_init(&sntp_config);
+#elif ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, sntp_server_name);
     esp_sntp_init();
@@ -225,11 +235,14 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
     sntp_setservername(0, sntp_server_name);
     sntp_init();
 #endif
+
+#if ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(5, 3, 0)
     if (config && config->sync_time_cb) {
         sntp_set_time_sync_notification_cb(config->sync_time_cb);
     } else {
         sntp_set_time_sync_notification_cb(esp_rmaker_time_sync_cb);
     }
+#endif
     esp_rmaker_timezone_enable();
     init_done = true;
     return ESP_OK;
