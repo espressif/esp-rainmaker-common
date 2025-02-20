@@ -115,7 +115,7 @@ menu "ESP RainMaker Common"
 
     config ESP_RMAKER_WORK_QUEUE_TASK_STACK
         int "ESP RainMaker Work Queue Task stack"
-        default 4096
+        default 5120
         help
             Stack size for the ESP RainMaker Work Queue Task.
 
@@ -144,11 +144,11 @@ menu "ESP RainMaker Common"
         default false
         depends on NVS_ENCRYPTION
         help
-            Enable this option if the factory partition is pre-encrypted before flashing and the encryption keys 
+            Enable this option if the factory partition is pre-encrypted before flashing and the encryption keys
             are flashed in partition with subtype nvs_keys specified by CONFIG_ESP_RMAKER_FACTORY_NVS_KEYS_PARTITION_NAME.
-            If an unencrypted factory partition is flashed, the device would not be able to read its data and 
+            If an unencrypted factory partition is flashed, the device would not be able to read its data and
             the partition would be considered empty.
-            If nvs encryption keys are not flashed onto device, they would be auto-generated and any previous data 
+            If nvs encryption keys are not flashed onto device, they would be auto-generated and any previous data
             in nvs/factory partition would become invalid.
 
     config ESP_RMAKER_FACTORY_NVS_KEYS_PARTITION_NAME
