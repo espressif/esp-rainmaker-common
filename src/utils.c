@@ -74,6 +74,7 @@ static esp_err_t __esp_rmaker_factory_reset(int8_t reboot_seconds)
 {
     nvs_flash_deinit();
     nvs_flash_erase();
+    esp_wifi_restore();
     if (reboot_seconds >= 0) {
         esp_rmaker_reboot(reboot_seconds);
     }
