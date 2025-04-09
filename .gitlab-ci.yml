@@ -1,0 +1,65 @@
+stages:
+  - build
+
+variables:
+  DOCKER_IMAGE: "espressif/idf:latest"
+  GIT_SUBMODULE_STRATEGY: recursive
+
+before_script:
+  - echo "Setting up environment"
+  - mkdir -p ~/.ssh
+  - chmod 700 ~/.ssh
+  - echo -n $GITLAB_KEY > ~/.ssh/id_rsa_base64
+  - base64 --decode --ignore-garbage ~/.ssh/id_rsa_base64 > ~/.ssh/id_rsa
+  - chmod 600 ~/.ssh/id_rsa
+  - echo -e "Host gitlab.espressif.cn\n\tStrictHostKeyChecking no\n" >> ~/.ssh/config
+
+.build_template:
+  stage: build
+  image: $DOCKER_IMAGE
+  tags:
+    - build
+  variables:
+    PEDANTIC_FLAGS: "-Werror -Werror=deprecated-declarations -Wno-error=cpp -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
+    EXTRA_CFLAGS: "${PEDANTIC_FLAGS}"
+    EXTRA_CXXFLAGS: "${PEDANTIC_FLAGS}"
+  script:
+    - cd test_app
+    - for TARGET in $TARGETS; do
+    -   if [[ "$TARGET" == "linux" || "$TARGET" == "esp32c5" ]]; then
+    -     idf.py --preview set-target $TARGET
+    -   else
+    -     idf.py set-target $TARGET
+    -   fi
+    -   idf.py build
+    - done
+
+build_idf_v5.1:
+  extends: .build_template
+  image: espressif/idf:release-v5.1
+  variables:
+    TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2"
+
+build_idf_v5.2:
+  extends: .build_template
+  image: espressif/idf:release-v5.2
+  variables:
+    TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2"
+
+build_idf_v5.3:
+  extends: .build_template
+  image: espressif/idf:release-v5.3
+  variables:
+    TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2"
+
+build_idf_v5.4:
+  extends: .build_template
+  image: espressif/idf:release-v5.4
+  variables:
+    TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2 esp32p4 esp32h2 linux"
+
+build_idf_v5.5:
+  extends: .build_template
+  image: espressif/idf:release-v5.5
+  variables:
+    TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32p4 esp32c5 esp32c2 esp32h2 linux"

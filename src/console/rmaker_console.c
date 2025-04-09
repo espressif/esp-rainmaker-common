@@ -16,14 +16,6 @@
 
 static const char *TAG = "rmaker_console";
 
-#ifndef CONFIG_IDF_TARGET_LINUX
-
-#include <driver/uart.h>
-static int stop;
-
-#define SCLI_STACK_SIZE CONFIG_ESP_RMAKER_CONSOLE_TASK_STACK
-#define SCLI_TASK_PRIORITY CONFIG_ESP_RMAKER_CONSOLE_TASK_PRIORITY
-
 #if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
 #ifdef CONFIG_IDF_TARGET_LINUX
 static esp_err_t scli_init()
@@ -50,7 +42,13 @@ static esp_err_t scli_init()
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
     return ESP_OK;
 }
-#else
+#else /* CONFIG_IDF_TARGET_LINUX */
+#include <driver/uart.h>
+static int stop;
+
+#define SCLI_STACK_SIZE CONFIG_ESP_RMAKER_CONSOLE_TASK_STACK
+#define SCLI_TASK_PRIORITY CONFIG_ESP_RMAKER_CONSOLE_TASK_PRIORITY
+
 static void scli_task(void *arg)
 {
     int uart_num = 0;
@@ -136,8 +134,8 @@ static esp_err_t scli_init(void)
     cli_started = true;
     return ESP_OK;
 }
-#endif
-#endif
+#endif /* CONFIG_IDF_TARGET_LINUX */
+#endif /* CONFIG_ESP_RMAKER_CONSOLE_ENABLED */
 
 esp_err_t esp_rmaker_common_console_init()
 {
