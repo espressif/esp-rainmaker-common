@@ -1,18 +1,8 @@
-// Copyright 2021 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
-#include <esp_sntp.h>
+/*
+ * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 
 #include <string.h>
 #include <time.h>
@@ -22,6 +12,10 @@
 #include <esp_rmaker_utils.h>
 #include <esp_rmaker_common_events.h>
 #include <esp_idf_version.h>
+
+#ifndef CONFIG_IDF_TARGET_LINUX
+#include <esp_sntp.h>
+#endif
 
 static const char *TAG = "esp_rmaker_time";
 
@@ -52,7 +46,7 @@ esp_err_t esp_rmaker_get_local_time_str(char *buf, size_t buf_len)
     strftime(strftime_buf, sizeof(strftime_buf), "%c %z[%Z]", &timeinfo);
     size_t print_size = snprintf(buf, buf_len, "%s, DST: %s", strftime_buf, timeinfo.tm_isdst ? "Yes" : "No");
     if (print_size >= buf_len) {
-        ESP_LOGE(TAG, "Buffer size %d insufficient for localtime string. Required size: %d", buf_len, print_size);
+        ESP_LOGE(TAG, "Buffer size %zu insufficient for localtime string. Required size: %zu", buf_len, print_size);
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
@@ -116,6 +110,12 @@ char *esp_rmaker_time_get_timezone(void)
 
 esp_err_t esp_rmaker_time_set_timezone_posix(const char *tz_posix)
 {
+    // Basic validation for the POSIX timezone string
+    if (!tz_posix || strlen(tz_posix) == 0) {
+        ESP_LOGE(TAG, "Invalid POSIX timezone string: %s", tz_posix ? tz_posix : "NULL");
+        return ESP_ERR_INVALID_ARG;
+    }
+
     esp_err_t err = __esp_rmaker_time_set_nvs(ESP_RMAKER_TZ_POSIX_NVS_NAME, tz_posix);
     if (err == ESP_OK) {
         esp_setenv("TZ", tz_posix, 1);
@@ -144,6 +144,10 @@ esp_err_t esp_rmaker_time_set_timezone(const char *tz)
 
 esp_err_t esp_rmaker_timezone_enable(void)
 {
+#ifdef CONFIG_IDF_TARGET_LINUX
+    ESP_LOGI(TAG, "Timezone enable skipped for Linux target");
+    return ESP_OK;
+#else
     char *tz_posix = esp_rmaker_time_get_timezone_posix();
     if (tz_posix) {
         esp_setenv("TZ", tz_posix, 1);
@@ -163,21 +167,30 @@ esp_err_t esp_rmaker_timezone_enable(void)
         }
     }
     return ESP_OK;
+#endif
 }
+
+#ifndef CONFIG_IDF_TARGET_LINUX
 static void esp_rmaker_time_sync_cb(struct timeval *tv)
 {
     ESP_LOGI(TAG, "SNTP Synchronised.");
     esp_rmaker_print_current_time();
 }
+#endif
 
 esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
 {
+#ifdef CONFIG_IDF_TARGET_LINUX
+    ESP_LOGI(TAG, "SNTP initialization skipped for Linux target");
+    init_done = true;
+    return ESP_OK;
+#else
     if (esp_sntp_enabled()) {
         ESP_LOGI(TAG, "SNTP already initialized.");
         init_done = true;
         return ESP_OK;
     }
-    char *sntp_server_name;
+    const char *sntp_server_name;
     if (!config || !config->sntp_server_name) {
         sntp_server_name = CONFIG_ESP_RMAKER_SNTP_SERVER_NAME;
     } else {
@@ -195,6 +208,7 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
     esp_rmaker_timezone_enable();
     init_done = true;
     return ESP_OK;
+#endif
 }
 
 bool esp_rmaker_time_check(void)

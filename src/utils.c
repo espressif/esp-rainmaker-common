@@ -1,21 +1,17 @@
-// Copyright 2021 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+/*
+ * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <stdio.h>
 #include <stdint.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/timers.h>
 #include <esp_system.h>
+#ifndef CONFIG_IDF_TARGET_LINUX
 #include <esp_wifi.h>
+#endif
 #include <nvs_flash.h>
 #include <esp_rmaker_common_events.h>
 
@@ -28,7 +24,11 @@ static void esp_rmaker_reboot_cb(TimerHandle_t handle)
 {
     xTimerDelete(reboot_timer, 10);
     reboot_timer = NULL;
+#ifndef CONFIG_IDF_TARGET_LINUX
     esp_restart();
+#else
+    printf("Linux mock: Simulating reboot (not actually rebooting)\n");
+#endif
 }
 
 esp_err_t esp_rmaker_reboot(int8_t seconds)
@@ -36,7 +36,11 @@ esp_err_t esp_rmaker_reboot(int8_t seconds)
     /* If specified time is 0, reboot immediately */
     if (seconds == 0) {
         esp_event_post(RMAKER_COMMON_EVENT, RMAKER_EVENT_REBOOT, &seconds, sizeof(seconds), portMAX_DELAY);
+#ifndef CONFIG_IDF_TARGET_LINUX
         esp_restart();
+#else
+        printf("Linux mock: Simulating immediate reboot (not actually rebooting)\n");
+#endif
         return ESP_OK;
     } else if (reboot_timer) {
         /* If reboot timer already exists, it means that a reboot operation is already in progress.
@@ -59,7 +63,8 @@ esp_err_t esp_rmaker_reboot(int8_t seconds)
     return ESP_OK;
 }
 
-#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
+#if defined(CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI)
+#ifndef CONFIG_IDF_TARGET_LINUX
 static esp_err_t __esp_rmaker_wifi_reset(int8_t reboot_seconds)
 {
     esp_wifi_restore();
@@ -68,6 +73,13 @@ static esp_err_t __esp_rmaker_wifi_reset(int8_t reboot_seconds)
     }
     return ESP_OK;
 }
+#else /* CONFIG_IDF_TARGET_LINUX */
+static esp_err_t __esp_rmaker_wifi_reset(int8_t reboot_seconds)
+{
+    printf("WiFi reset is not supported on Linux\n");
+    return ESP_OK;
+}
+#endif /* CONFIG_IDF_TARGET_LINUX */
 #endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
 
 static esp_err_t __esp_rmaker_factory_reset(int8_t reboot_seconds)
@@ -83,7 +95,8 @@ static esp_err_t __esp_rmaker_factory_reset(int8_t reboot_seconds)
     return ESP_OK;
 }
 
-#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
+#if defined(CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI)
+#ifndef CONFIG_IDF_TARGET_LINUX
 static void esp_rmaker_wifi_reset_cb(TimerHandle_t handle)
 {
     /* (Hack) Using the timer id as reboot seconds */
@@ -97,6 +110,14 @@ static void esp_rmaker_wifi_reset_cb(TimerHandle_t handle)
     xTimerDelete(reset_timer, 10);
     reset_timer = NULL;
 }
+#else /* CONFIG_IDF_TARGET_LINUX */
+static void esp_rmaker_wifi_reset_cb(TimerHandle_t handle)
+{
+    printf("Linux mock: Simulating WiFi reset\n");
+    xTimerDelete(reset_timer, 10);
+    reset_timer = NULL;
+}
+#endif /* CONFIG_IDF_TARGET_LINUX */
 #endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
 
 static void esp_rmaker_factory_reset_cb(TimerHandle_t handle)

@@ -16,7 +16,9 @@
 #include <nvs_flash.h>
 #include <esp_log.h>
 #include <esp_console.h>
+#ifndef CONFIG_IDF_TARGET_LINUX
 #include <lwip/sockets.h>
+#endif
 #include <esp_system.h>
 #include <argtable3/argtable3.h>
 #include <esp_heap_caps.h>
@@ -39,7 +41,7 @@ static int reboot_cli_handler(int argc, char *argv[])
 
 static int up_time_cli_handler(int argc, char *argv[])
 {
-    printf("%s: Uptime of the device: %lld milliseconds\n", TAG, esp_timer_get_time() / 1000);
+    printf("%s: Uptime of the device: %" PRIi64 " milliseconds\n", TAG, esp_timer_get_time() / 1000);
     return 0;
 }
 
@@ -88,13 +90,13 @@ static int cpu_dump_cli_handler(int argc, char *argv[])
 static int mem_dump_cli_handler(int argc, char *argv[])
 {
     printf("\tDescription\tInternal\tSPIRAM\n");
-    printf("Current Free Memory\t%d\t\t%d\n",
+    printf("Current Free Memory\t%zu\t\t%zu\n",
            heap_caps_get_free_size(MALLOC_CAP_8BIT) - heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
            heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
-    printf("Largest Free Block\t%d\t\t%d\n",
+    printf("Largest Free Block\t%zu\t\t%zu\n",
            heap_caps_get_largest_free_block(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL),
            heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
-    printf("Min. Ever Free Size\t%d\t\t%d\n",
+    printf("Min. Ever Free Size\t%zu\t\t%zu\n",
            heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL),
            heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
     return 0;

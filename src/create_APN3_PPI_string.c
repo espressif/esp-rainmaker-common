@@ -2,16 +2,19 @@
  * APN3 PPI string generator - sample code
  *
  * NOTE: All code is provided as sample code for informational purposes only, and should not be used for any testing or production workloads.
- * All code is provided “as is” and AWS expressly disclaims all warranties, including, without limitation: any implied warranties of
+ * All code is provided "as is" and AWS expressly disclaims all warranties, including, without limitation: any implied warranties of
  * noninfringement, merchantability, or fitness for a particular purpose; any warranty that operation of the code will be error-free
  * or free of harmful components; or any warranty arising out of any course of dealing or usage of trade. In no event shall AWS or
  * any of its affiliates be liable for any damages arising out of the use of this code, including, without limitation, any direct,
  * indirect, special, incidental or consequential damages.
  */
+
 #include <stdio.h>
 #include <string.h>
 #include <sdkconfig.h>
+#ifndef CONFIG_IDF_TARGET_LINUX
 #include <esp_wifi.h>
+#endif
 #include <esp_log.h>
 #ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_THREAD
 #include <esp_mac.h>
@@ -52,7 +55,7 @@ static const char *TAG = "aws_ppi";
  */
 char __attribute__((weak)) *platform_get_product_name()
 {
-    return(PPI_PRODUCT_NAME);
+    return (char *) (PPI_PRODUCT_NAME);
 }
 
 /*
@@ -91,7 +94,7 @@ char __attribute__((weak)) *platform_get_product_UID()
  */
 char __attribute__((weak)) *platform_get_product_version()
 {
-    return(PPI_PRODUCT_VERSION);
+    return (char *) (PPI_PRODUCT_VERSION);
 }
 
 /*
@@ -101,7 +104,7 @@ char __attribute__((weak)) *platform_get_product_version()
  */
 char __attribute__((weak)) *platform_get_silicon_sku_code()
 {
-    return(PPI_SILICON_SKU_CODE);
+    return (char *) (PPI_SILICON_SKU_CODE);
 }
 
 /*
@@ -116,7 +119,7 @@ int validate_sku_code(char *silicon_sku_code)
 
   typedef struct sku_item_t {
       /* entry in sku code lookup table */
-      char *skucode; /* code corresponding to sku name */
+      const char *skucode; /* code corresponding to sku name */
   } sku_item;
 
   static sku_item skutable[] =
