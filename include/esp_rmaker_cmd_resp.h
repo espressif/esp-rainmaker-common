@@ -24,6 +24,11 @@ extern "C"
 /** Secondary User Flag */
 #define ESP_RMAKER_USER_ROLE_SECONDARY_USER (1 << 2)
 
+/** Node User Flag
+ *  This should be used when device initiates the command
+ */
+#define ESP_RMAKER_USER_ROLE_NODE           (1 << 3)
+
 
 /** RainMaker Command Response TLV8 Types */
 typedef enum {
@@ -179,6 +184,24 @@ esp_err_t esp_rmaker_cmd_resp_test_send(const char *req_id, uint8_t role, uint16
  * @return error on failure.
  */
 esp_err_t esp_rmaker_cmd_resp_parse_response(const void *response, size_t response_len, void *priv);
+
+/** Prepare TLV payload for command or response
+ *
+ * @param[in] req_id      NULL terminated request id of max 32 characters.
+ * @param[in] role        User Role flag.
+ * @param[in] cmd         Command Identifier.
+ * @param[in] data        Pointer to data for the command.
+ * @param[in] data_size   Size of the data.
+ * @param[out] output     Pointer to output data. This function will allocate memory and set this pointer
+ *                        accordingly. This pointer should be freed by the caller after use.
+ * @param[out] output_len Length of output generated.
+ *
+ * @return ESP_OK on success, appropriate error on failure.
+ */
+esp_err_t esp_rmaker_cmd_resp_prepare_response_payload(const char *req_id, uint8_t role, uint16_t cmd,
+                                                       const void *data,size_t data_size,
+                                                       void **output, size_t *output_len);
+
 #ifdef __cplusplus
 }
 #endif

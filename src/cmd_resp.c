@@ -178,6 +178,8 @@ const char *esp_rmaker_get_user_role_string(uint8_t user_role)
         return "Primary";
     case ESP_RMAKER_USER_ROLE_SECONDARY_USER:
         return "Secondary";
+    case ESP_RMAKER_USER_ROLE_NODE:
+        return "Node";
     default:
         return "Invalid Role";
     }
@@ -393,6 +395,111 @@ esp_err_t esp_rmaker_cmd_resp_test_send(const char *req_id, uint8_t role, uint16
     }
     ESP_LOGI(TAG, "Sending command of size %d for cmd %d", tlv_data.curlen, cmd);
     return cmd_send(cmd_data, tlv_data.curlen, priv_data);
+}
+
+// Calculate size of TLV payload for a given length of data.
+// This can be called multiple times to calculate the total size of the TLV payload
+// for multiple TLV entries that will be sent in a single command or response.
+static size_t esp_rmaker_get_tlv_encoded_size(size_t len)
+{
+    // For L < 255
+    // T -> 1 byte
+    // L -> 1 byte
+    // V -> L bytes
+
+    // For L >= 255
+    // T -> 1 byte
+    // L -> 1 bytes
+    // V -> 255 bytes
+    // T -> 1 byte
+    // L -> 1 bytes
+    // V -> 255 bytes
+    // ...
+    // T -> 1 byte
+    // L -> 1 bytes
+    // V -> len % 255 bytes
+
+    size_t required_packets = (len / 255) + 1;
+    size_t TL_size = (2 * required_packets);
+    size_t V_size = ((required_packets - 1) * 255) + (len % 255);
+    return (TL_size + V_size);
+}
+
+esp_err_t esp_rmaker_cmd_resp_prepare_response_payload(const char *req_id, uint8_t role, uint16_t cmd_id,
+                                                        const void *data, size_t data_size,
+                                                        void **output, size_t *output_len)
+{
+    if (!output_len) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_rmaker_tlv_data_t tlv_data;
+    size_t payload_size = 0;
+
+    if (req_id) {
+        payload_size += esp_rmaker_get_tlv_encoded_size(strlen(req_id));
+    }
+    if (role != 0) {
+        payload_size += esp_rmaker_get_tlv_encoded_size(sizeof(role));
+    }
+    payload_size += esp_rmaker_get_tlv_encoded_size(sizeof(cmd_id));
+    if (data != NULL && data_size != 0) {
+        payload_size += esp_rmaker_get_tlv_encoded_size(data_size);
+    }
+
+    ESP_LOGD(TAG, "Calculated payload size: %u", payload_size);
+
+    uint8_t *payload_buffer = MEM_CALLOC_EXTRAM(1, payload_size);
+    if (!payload_buffer) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    esp_rmaker_tlv_data_init(&tlv_data, payload_buffer, payload_size);
+
+    // tracks the length of the encoded TLV data
+    int encoded_len = -1;
+    if (req_id) {
+        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_REQ_ID, strlen(req_id), req_id);
+        if (encoded_len < 0) {
+            ESP_LOGE(TAG, "Failed to add TLV for Request Id.");
+            goto exit;
+        }
+    }
+
+    if (role != 0) {
+        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_USER_ROLE, sizeof(role), &role);
+        if (encoded_len < 0) {
+            ESP_LOGE(TAG, "Failed to add TLV for User Role.");
+            goto exit;
+        }
+    }
+
+    uint8_t cmd_buf[2];
+    put_u16_le(cmd_buf, cmd_id);
+    encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_CMD, sizeof(cmd_buf), cmd_buf);
+    if (encoded_len < 0) {
+        ESP_LOGE(TAG, "Failed to add TLV for Command.");
+        goto exit;
+    }
+
+    if (data != NULL && data_size != 0) {
+        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_DATA, data_size, data);
+        if (encoded_len < 0) {
+            ESP_LOGE(TAG, "Failed to add TLV for Data.");
+            goto exit;
+        }
+    }
+
+exit:
+    if (encoded_len < 0) {
+        free(payload_buffer);
+        return ESP_FAIL;
+    }
+
+    *output = payload_buffer;
+    *output_len = tlv_data.curlen;
+    ESP_LOGD(TAG, "Actual payload length: %d", tlv_data.curlen);
+    return ESP_OK;
 }
 
 /* Parse response */
