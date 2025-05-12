@@ -591,6 +591,14 @@ static esp_mqtt_client_config_t esp_mqtt_glue_create_client_config(esp_rmaker_mq
 #endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */
         },
     };
+    if (conn_params->use_ecdsa_peripheral) {
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 1)
+        mqtt_client_cfg.credentials.authentication.use_ecdsa_peripheral = conn_params->use_ecdsa_peripheral;
+        mqtt_client_cfg.credentials.authentication.ecdsa_key_efuse_blk = conn_params->ecdsa_key_efuse_blk;
+#else
+        ESP_LOGW(TAG, "MQTT ECDSA peripheral is supported only on ESP-IDF >= v5.5.1");
+#endif
+    }
     return mqtt_client_cfg;
 }
 
