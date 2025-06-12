@@ -104,7 +104,7 @@ menu "ESP RainMaker Common"
             Network protocol type over which the ESP RainMaker will run.
 
         config ESP_RMAKER_NETWORK_OVER_WIFI
-            depends on ESP_WIFI_ENABLED || ESP_WIFI_REMOTE_ENABLED
+            depends on ESP_WIFI_ENABLED || ESP32_WIFI_ENABLED || ESP_WIFI_REMOTE_ENABLED
             bool "ESP RainMaker over Wi-Fi"
 
         config ESP_RMAKER_NETWORK_OVER_THREAD
