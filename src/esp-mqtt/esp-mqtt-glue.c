@@ -59,10 +59,21 @@ static const char *TAG = "esp_mqtt_glue";
 
 #define MAX_MQTT_SUBSCRIPTIONS      CONFIG_ESP_RMAKER_MAX_MQTT_SUBSCRIPTIONS
 
+/* Subscription states for tracking subscription lifecycle */
+typedef enum {
+    MQTT_SUB_STATE_NONE = 0,        /* Not subscribed */
+    MQTT_SUB_STATE_REQUESTED,       /* Subscription request sent, waiting for SUBACK */
+    MQTT_SUB_STATE_ACKNOWLEDGED,    /* SUBACK received, subscription active */
+    MQTT_SUB_STATE_FAILED           /* Subscription failed */
+} mqtt_subscription_state_t;
+
 typedef struct {
     char *topic;
     esp_rmaker_mqtt_subscribe_cb_t cb;
     void *priv;
+    mqtt_subscription_state_t state;
+    int msg_id;                     /* Message ID from last subscribe request */
+    uint8_t qos;                    /* QoS level for this subscription */
 } esp_mqtt_glue_subscription_t;
 
 typedef struct {
@@ -78,6 +89,16 @@ typedef struct {
 } esp_mqtt_glue_long_data_t;
 
 static void esp_mqtt_glue_deinit(void);
+
+/* Helper function to reset all subscription states */
+static void esp_mqtt_glue_reset_subscription_states(void)
+{
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        if (mqtt_data->subscriptions[i]) {
+            mqtt_data->subscriptions[i]->state = MQTT_SUB_STATE_NONE;
+        }
+    }
+}
 
 static void esp_mqtt_glue_subscribe_callback(const char *topic, int topic_len, const char *data, int data_len)
 {
@@ -95,43 +116,133 @@ static void esp_mqtt_glue_subscribe_callback(const char *topic, int topic_len, c
 
 static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subscribe_cb_t cb, uint8_t qos, void *priv_data)
 {
-    if ( !mqtt_data || !topic || !cb) {
+    if (!mqtt_data || !topic || !cb) {
         return ESP_FAIL;
     }
-    int i;
-    for (i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-        if (!mqtt_data->subscriptions[i]) {
-            esp_mqtt_glue_subscription_t *subscription = calloc(1, sizeof(esp_mqtt_glue_subscription_t));
-            if (!subscription) {
-                return ESP_FAIL;
+
+    esp_mqtt_glue_subscription_t *existing_entry = NULL;
+    bool topic_has_active_subscription = false;
+    int empty_slot = -1;
+
+    /* Single pass: gather all the info we need */
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        if (mqtt_data->subscriptions[i]) {
+            if (strcmp(topic, mqtt_data->subscriptions[i]->topic) == 0) {
+                /* Same topic found */
+                if (cb == mqtt_data->subscriptions[i]->cb) {
+                    /* Same callback too - this is an update */
+                    existing_entry = mqtt_data->subscriptions[i];
+                }
+                /* Check if this topic has an active subscription */
+                if (mqtt_data->subscriptions[i]->state == MQTT_SUB_STATE_ACKNOWLEDGED) {
+                    topic_has_active_subscription = true;
+                }
             }
-            subscription->topic = strdup(topic);
-            if (!subscription->topic) {
-                free(subscription);
-                return ESP_FAIL;
-            }
-            int ret = esp_mqtt_client_subscribe(mqtt_data->mqtt_client, subscription->topic, qos);
-            if (ret < 0) {
-                free(subscription->topic);
-                free(subscription);
-                return ESP_FAIL;
-            }
-            subscription->priv = priv_data;
-            subscription->cb = cb;
-            mqtt_data->subscriptions[i] = subscription;
-            ESP_LOGD(TAG, "Subscribed to topic: %s", topic);
-            return ESP_OK;
+        } else if (empty_slot == -1) {
+            empty_slot = i;
         }
     }
-    return ESP_FAIL;
+
+    /* Handle existing entry (same topic + same callback) */
+    if (existing_entry) {
+        existing_entry->priv = priv_data;
+
+        bool need_resubscribe = false;
+
+        if (existing_entry->state != MQTT_SUB_STATE_ACKNOWLEDGED) {
+            /* Not acknowledged yet, need to re-subscribe */
+            need_resubscribe = true;
+        } else if (existing_entry->qos < qos) {
+            /* QoS upgrade needed, re-subscribe */
+            need_resubscribe = true;
+            ESP_LOGD(TAG, "QoS upgrade requested for topic: %s (%d->%d)", topic, existing_entry->qos, qos);
+        }
+
+        if (need_resubscribe) {
+            int ret = esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
+            if (ret >= 0) {
+                existing_entry->msg_id = ret;
+                existing_entry->state = MQTT_SUB_STATE_REQUESTED;
+                existing_entry->qos = qos;
+                ESP_LOGD(TAG, "Re-subscribing to topic: %s (msg_id: %d, QoS: %d)", topic, ret, qos);
+            } else {
+                existing_entry->state = MQTT_SUB_STATE_FAILED;
+                ESP_LOGW(TAG, "Failed to re-subscribe to topic: %s", topic);
+            }
+        }
+        return ESP_OK;
+    }
+
+    /* Need to create new entry */
+    if (empty_slot == -1) {
+        ESP_LOGE(TAG, "No space for new subscription to topic: %s", topic);
+        return ESP_FAIL;
+    }
+
+    /* Create and populate new subscription */
+    esp_mqtt_glue_subscription_t *subscription = calloc(1, sizeof(esp_mqtt_glue_subscription_t));
+    if (!subscription) {
+        ESP_LOGE(TAG, "Failed to allocate memory for subscription");
+        return ESP_FAIL;
+    }
+
+    subscription->topic = strdup(topic);
+    if (!subscription->topic) {
+        free(subscription);
+        ESP_LOGE(TAG, "Failed to allocate memory for topic string");
+        return ESP_FAIL;
+    }
+
+    subscription->priv = priv_data;
+    subscription->cb = cb;
+    subscription->qos = qos;
+    subscription->state = topic_has_active_subscription ? MQTT_SUB_STATE_ACKNOWLEDGED : MQTT_SUB_STATE_NONE;
+
+    /* Add to database first */
+    mqtt_data->subscriptions[empty_slot] = subscription;
+
+    /* Send MQTT subscribe only if needed */
+    if (!topic_has_active_subscription) {
+        int ret = esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
+        if (ret >= 0) {
+            subscription->msg_id = ret;
+            subscription->state = MQTT_SUB_STATE_REQUESTED;
+            ESP_LOGD(TAG, "Subscribed to topic: %s (msg_id: %d)", topic, ret);
+        } else {
+            subscription->state = MQTT_SUB_STATE_FAILED;
+            ESP_LOGW(TAG, "MQTT subscribe failed for topic: %s, keeping in DB for retry", topic);
+        }
+    } else {
+        ESP_LOGD(TAG, "Added callback for already-subscribed topic: %s", topic);
+    }
+
+    return ESP_OK;
 }
 
 static void unsubscribe_helper(esp_mqtt_glue_subscription_t **subscription)
 {
     if (subscription && *subscription) {
-        if (esp_mqtt_client_unsubscribe(mqtt_data->mqtt_client, (*subscription)->topic) < 0) {
-            ESP_LOGW(TAG, "Could not unsubscribe from topic: %s", (*subscription)->topic);
+        /* Only send MQTT unsubscribe if this is the last subscription for this topic */
+        bool other_subscription_exists = false;
+        for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+            if (mqtt_data->subscriptions[i] &&
+                mqtt_data->subscriptions[i] != *subscription &&
+                strcmp(mqtt_data->subscriptions[i]->topic, (*subscription)->topic) == 0) {
+                other_subscription_exists = true;
+                break;
+            }
         }
+
+        if (!other_subscription_exists) {
+            if (esp_mqtt_client_unsubscribe(mqtt_data->mqtt_client, (*subscription)->topic) < 0) {
+                ESP_LOGW(TAG, "Could not unsubscribe from topic: %s", (*subscription)->topic);
+            } else {
+                ESP_LOGD(TAG, "Unsubscribed from topic: %s", (*subscription)->topic);
+            }
+        } else {
+            ESP_LOGD(TAG, "Not unsubscribing from topic %s - other callbacks still exist", (*subscription)->topic);
+        }
+
         free((*subscription)->topic);
         free(*subscription);
         *subscription = NULL;
@@ -236,21 +347,73 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
     switch (event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT Connected");
-            /* Resubscribe to all topics after reconnection */
+            /* Reset all subscription states on reconnection */
+            esp_mqtt_glue_reset_subscription_states();
+
+            /* Re-subscribe to unique topics only */
             for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-                if (mqtt_data->subscriptions[i]) {
-                    esp_mqtt_client_subscribe(event->client, mqtt_data->subscriptions[i]->topic, 1);
+                if (!mqtt_data->subscriptions[i]) continue;
+
+                /* Skip if we already processed this topic */
+                bool topic_already_processed = false;
+                for (int j = 0; j < i; j++) {
+                    if (mqtt_data->subscriptions[j] &&
+                        strcmp(mqtt_data->subscriptions[i]->topic, mqtt_data->subscriptions[j]->topic) == 0) {
+                        topic_already_processed = true;
+                        break;
+                    }
+                }
+                if (topic_already_processed) continue;
+
+                /* Find highest QoS for this topic */
+                uint8_t max_qos = mqtt_data->subscriptions[i]->qos;
+                for (int j = i + 1; j < MAX_MQTT_SUBSCRIPTIONS; j++) {
+                    if (mqtt_data->subscriptions[j] &&
+                        strcmp(mqtt_data->subscriptions[i]->topic, mqtt_data->subscriptions[j]->topic) == 0 &&
+                        mqtt_data->subscriptions[j]->qos > max_qos) {
+                        max_qos = mqtt_data->subscriptions[j]->qos;
+                    }
+                }
+
+                /* Subscribe once with highest QoS */
+                int ret = esp_mqtt_client_subscribe(event->client, mqtt_data->subscriptions[i]->topic, max_qos);
+                mqtt_subscription_state_t new_state = (ret >= 0) ? MQTT_SUB_STATE_REQUESTED : MQTT_SUB_STATE_FAILED;
+
+                /* Update all subscriptions for this topic */
+                for (int j = i; j < MAX_MQTT_SUBSCRIPTIONS; j++) {
+                    if (mqtt_data->subscriptions[j] &&
+                        strcmp(mqtt_data->subscriptions[i]->topic, mqtt_data->subscriptions[j]->topic) == 0) {
+                        mqtt_data->subscriptions[j]->msg_id = (ret >= 0) ? ret : -1;
+                        mqtt_data->subscriptions[j]->state = new_state;
+                    }
+                }
+
+                if (ret >= 0) {
+                    ESP_LOGD(TAG, "Reconnect: Subscribed to %s (msg_id: %d, QoS: %d)",
+                             mqtt_data->subscriptions[i]->topic, ret, max_qos);
+                } else {
+                    ESP_LOGW(TAG, "Reconnect: Failed to subscribe to %s", mqtt_data->subscriptions[i]->topic);
                 }
             }
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_CONNECTED, NULL, 0, portMAX_DELAY);
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGW(TAG, "MQTT Disconnected. Will try reconnecting in a while...");
+            /* Mark all subscriptions as disconnected - they'll need re-acknowledgment */
+            esp_mqtt_glue_reset_subscription_states();
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_DISCONNECTED, NULL, 0, portMAX_DELAY);
             break;
 
         case MQTT_EVENT_SUBSCRIBED:
             ESP_LOGD(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+            /* Mark matching subscriptions as acknowledged */
+            for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+                if (mqtt_data->subscriptions[i] &&
+                    mqtt_data->subscriptions[i]->msg_id == event->msg_id) {
+                    mqtt_data->subscriptions[i]->state = MQTT_SUB_STATE_ACKNOWLEDGED;
+                    ESP_LOGD(TAG, "Subscription acknowledged for topic: %s", mqtt_data->subscriptions[i]->topic);
+                }
+            }
             break;
         case MQTT_EVENT_UNSUBSCRIBED:
             ESP_LOGD(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
