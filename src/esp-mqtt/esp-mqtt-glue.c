@@ -114,6 +114,21 @@ static void esp_mqtt_glue_subscribe_callback(const char *topic, int topic_len, c
     }
 }
 
+/*
+ * Compatibility wrapper for ESP-IDF v5.1.2+ esp_mqtt_client_subscribe macro issue
+ * The _Generic macro doesn't handle const char* topic type properly in older versions
+ * esp_mqtt_client_subscribe_single was introduced in ESP-IDF v5.1.2 to fix this
+ * See: https://github.com/espressif/esp-idf/issues/13414
+ */
+static inline int _esp_mqtt_client_subscribe(esp_mqtt_client_handle_t client, const char *topic, int qos)
+{
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 2)
+    return esp_mqtt_client_subscribe_single(client, topic, qos);
+#else
+    return esp_mqtt_client_subscribe(client, topic, qos);
+#endif
+}
+
 static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subscribe_cb_t cb, uint8_t qos, void *priv_data)
 {
     if (!mqtt_data || !topic || !cb) {
@@ -159,7 +174,7 @@ static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subs
         }
 
         if (need_resubscribe) {
-            int ret = esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
+            int ret = _esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
             if (ret >= 0) {
                 existing_entry->msg_id = ret;
                 existing_entry->state = MQTT_SUB_STATE_REQUESTED;
@@ -203,7 +218,7 @@ static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subs
 
     /* Send MQTT subscribe only if needed */
     if (!topic_has_active_subscription) {
-        int ret = esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
+        int ret = _esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
         if (ret >= 0) {
             subscription->msg_id = ret;
             subscription->state = MQTT_SUB_STATE_REQUESTED;
@@ -376,7 +391,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
                 }
 
                 /* Subscribe once with highest QoS */
-                int ret = esp_mqtt_client_subscribe(event->client, mqtt_data->subscriptions[i]->topic, max_qos);
+                int ret = _esp_mqtt_client_subscribe(event->client, mqtt_data->subscriptions[i]->topic, max_qos);
                 mqtt_subscription_state_t new_state = (ret >= 0) ? MQTT_SUB_STATE_REQUESTED : MQTT_SUB_STATE_FAILED;
 
                 /* Update all subscriptions for this topic */
