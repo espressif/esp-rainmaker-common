@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <esp_idf_version.h>
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
 #include <esp_sntp.h>
-#else
-#include <lwip/apps/sntp.h>
-#endif
 
 #include <string.h>
 #include <inttypes.h>
@@ -43,30 +38,6 @@ extern const char *esp_rmaker_tz_db_get_posix_str(const char *name);
 
 int esp_setenv(const char *name, const char *value, int rewrite)
 {
-/* IDF version lower than v4.4.3 not support parse bracket POSIX TZ in newlib.
-   Wrap setenv function to convert bracket POSIX TZ, such as <+08>-8 to TZ-08 */
-#if ESP_IDF_VERSION <= ESP_IDF_VERSION_VAL(4, 4, 3)
-#define ESP_TZNAME_MIN 3
-#define ESP_TZNAME_MAX 10
-    if (value) {
-        const char *tzenv = value;
-        if (*tzenv == '<') {
-            ++ tzenv;
-            char tzname[ESP_TZNAME_MIN + 1] = {0};
-            char real_value[6] = {0};
-            int n = 0;
-            if (sscanf(tzenv, "%10[-+0-9A-Za-z]%n", tzname, &n) <= 0 || n < ESP_TZNAME_MIN || n > ESP_TZNAME_MAX || '>' != tzenv[n]) {
-                ESP_LOGW(TAG, "Failed to convert Posix TZ %s", value);
-                goto exit;
-            }
-            tzname[0] = (tzname[0] == '-') ? '+' : '-';
-            sprintf(real_value, "TZ%s", tzname);
-            ESP_LOGI(TAG, "Real Posix TZ is %s", real_value);
-            return setenv(name, real_value, rewrite);
-        }
-    }
-exit:
-#endif
     return setenv(name, value, rewrite);
 }
 
@@ -200,11 +171,7 @@ static void esp_rmaker_time_sync_cb(struct timeval *tv)
 
 esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
 {
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
     if (esp_sntp_enabled()) {
-#else
-    if (sntp_enabled()) {
-#endif
         ESP_LOGI(TAG, "SNTP already initialized.");
         init_done = true;
         return ESP_OK;
@@ -216,15 +183,9 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
         sntp_server_name = config->sntp_server_name;
     }
     ESP_LOGI(TAG, "Initializing SNTP. Using the SNTP server: %s", sntp_server_name);
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 1, 0)
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, sntp_server_name);
     esp_sntp_init();
-#else
-    sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    sntp_setservername(0, sntp_server_name);
-    sntp_init();
-#endif
     if (config && config->sync_time_cb) {
         sntp_set_time_sync_notification_cb(config->sync_time_cb);
     } else {
