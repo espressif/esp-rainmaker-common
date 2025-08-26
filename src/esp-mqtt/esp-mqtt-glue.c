@@ -24,36 +24,14 @@
 #include <esp_rmaker_mqtt_glue.h>
 #include <esp_idf_version.h>
 #include <esp_rmaker_utils.h>
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 1, 0)
-// Features supported in 4.1+
-
 #ifdef CONFIG_ESP_RMAKER_MQTT_PORT_443
 #define ESP_RMAKER_MQTT_USE_PORT_443
 #endif
-
-#else
-
-#ifdef CONFIG_ESP_RMAKER_MQTT_PORT_443
-#warning "Certificate Bundle not supported below IDF v4.4. Using provided certificate instead."
-#endif
-
-#endif /* !IDF4.1 */
-
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(4, 4, 0)
-// Features supported in 4.4+
 
 #ifdef CONFIG_ESP_RMAKER_MQTT_USE_CERT_BUNDLE
 #define ESP_RMAKER_MQTT_USE_CERT_BUNDLE
 #include <esp_crt_bundle.h>
 #endif
-
-#else
-
-#ifdef CONFIG_ESP_RMAKER_MQTT_USE_CERT_BUNDLE
-#warning "Certificate Bundle not supported below 4.4. Using provided certificate instead."
-#endif
-
-#endif /* !IDF4.4 */
 
 static const char *TAG = "esp_mqtt_glue";
 
@@ -347,17 +325,9 @@ static esp_mqtt_glue_long_data_t *esp_mqtt_glue_manage_long_data(esp_mqtt_glue_l
     return long_data;
 }
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
-#else
-static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
-#endif
 {
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     esp_mqtt_event_handle_t event = event_data;
-#else
-    uint32_t event_id = event->event_id;
-#endif
 
     switch (event_id) {
         case MQTT_EVENT_CONNECTED:
@@ -471,9 +441,6 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
             ESP_LOGD(TAG, "Other event id:%d", event->event_id);
             break;
     }
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-    return ESP_OK;
-#endif
 }
 
 static esp_err_t esp_mqtt_glue_connect(void)
@@ -542,7 +509,6 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
     }
     mqtt_data->conn_params = conn_params;
 
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     const esp_mqtt_client_config_t mqtt_client_cfg = {
         .broker = {
             .address = {
@@ -586,46 +552,13 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
 #endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */
         },
     };
-#else
-    const esp_mqtt_client_config_t mqtt_client_cfg = {
-        .host = conn_params->mqtt_host,
-#ifdef ESP_RMAKER_MQTT_USE_PORT_443
-        .port = 443,
-        .alpn_protos = alpn_protocols,
-#else
-        .port = 8883,
-#endif /* !ESP_RMAKER_MQTT_USE_PORT_443 */
-#ifdef ESP_RMAKER_MQTT_USE_CERT_BUNDLE
-        .crt_bundle_attach = esp_crt_bundle_attach,
-#else
-        .cert_pem = (const char *)conn_params->server_cert,
-        .cert_len = conn_params->server_cert_len,
-#endif
-        .client_cert_pem = (const char *)conn_params->client_cert,
-        .client_cert_len = conn_params->client_cert_len,
-        .client_key_pem = (const char *)conn_params->client_key,
-        .client_key_len = conn_params->client_key_len,
-        .client_id = (const char *)conn_params->client_id,
-        .keepalive = CONFIG_ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL,
-        .event_handle = mqtt_event_handler,
-        .transport = MQTT_TRANSPORT_OVER_SSL,
-#ifdef CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION
-        .disable_clean_session = 1,
-#endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */
-#ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
-        .username = username,
-#endif
-    };
-#endif
     mqtt_data->mqtt_client = esp_mqtt_client_init(&mqtt_client_cfg);
     if (!mqtt_data->mqtt_client) {
         ESP_LOGE(TAG, "esp_mqtt_client_init failed");
         esp_mqtt_glue_deinit();
         return ESP_FAIL;
     }
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
     esp_mqtt_client_register_event(mqtt_data->mqtt_client , ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-#endif
     return ESP_OK;
 }
 

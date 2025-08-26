@@ -4,10 +4,7 @@ set(srcs "src/work_queue.c" "src/factory.c" "src/time.c" "src/timezone.c" "src/u
 set(priv_req mqtt nvs_flash console nvs_flash esp_wifi driver)
 set(requires esp_event)
 
-# esp_timer component was introduced in v4.2
-if("${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}" VERSION_GREATER "4.1")
-    list(APPEND priv_req esp_timer)
-endif()
+list(APPEND priv_req esp_timer)
 
 #if(CONFIG_ESP_RMAKER_LIB_ESP_MQTT)
     list(APPEND srcs "src/esp-mqtt/esp-mqtt-glue.c")
