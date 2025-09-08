@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "unity.h"
 #include "esp_rmaker_utils.h"
 #include "esp_log.h"
@@ -181,6 +182,173 @@ static esp_err_t cmd_response_handler_wrapper(const void *input, size_t input_le
         free(output_data);
     }
     return err;
+}
+
+TEST_CASE("ESP RainMaker ISO8601 to Epoch Conversion", "[rmaker_utils]")
+{
+    time_t epoch_time;
+    esp_err_t err;
+
+    /* Test valid ISO8601 UTC format with Z suffix */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2023-12-25T10:30:45Z", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "ISO8601 '2023-12-25T10:30:45Z' converted to epoch: %ld", (long)epoch_time);
+
+    /* Test valid ISO8601 with positive timezone offset */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2023-12-25T15:30:45+05:00", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "ISO8601 '2023-12-25T15:30:45+05:00' converted to epoch: %ld", (long)epoch_time);
+
+    /* Test valid ISO8601 with negative timezone offset */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2023-12-25T05:30:45-05:00", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "ISO8601 '2023-12-25T05:30:45-05:00' converted to epoch: %ld", (long)epoch_time);
+
+    /* Test with explicit length parameter */
+    const char *iso_str = "2023-12-25T10:30:45Z_extra_data";
+    err = esp_rmaker_time_convert_iso8601_to_epoch(iso_str, 20, &epoch_time);  // Only parse first 20 chars
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "ISO8601 with length limit converted to epoch: %ld", (long)epoch_time);
+
+    /* Test epoch time from 2000-01-01T00:00:00Z (millennium boundary) */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2000-01-01T00:00:00Z", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_EQUAL(946684800, epoch_time);  // Known epoch for 2000-01-01 00:00:00 UTC
+    ESP_LOGI(TAG, "Millennium boundary test passed: %ld", (long)epoch_time);
+
+    /* Test invalid inputs - NULL string */
+    err = esp_rmaker_time_convert_iso8601_to_epoch(NULL, 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_FAIL, err);
+
+    /* Test invalid inputs - NULL output pointer */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2023-12-25T10:30:45Z", 0, NULL);
+    TEST_ASSERT_EQUAL(ESP_FAIL, err);
+
+    /* Test invalid ISO8601 format - empty string */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_FAIL, err);
+
+    /* Test invalid ISO8601 format - incomplete string */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2023-12-25T10:30", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_FAIL, err);
+
+    /* Test invalid ISO8601 format - completely malformed */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("not-a-date", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_FAIL, err);
+
+    /* Test invalid ISO8601 format - missing Z suffix */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2023-12-25T10:30:45", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_FAIL, err);
+
+    /* Test edge case - very long string (should be truncated internally) */
+    char long_str[120];
+    snprintf(long_str, sizeof(long_str), "2023-12-25T10:30:45Z%s",
+             "this_is_a_very_long_suffix_that_should_be_ignored_when_parsing_the_iso8601_timestamp");
+    err = esp_rmaker_time_convert_iso8601_to_epoch(long_str, 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "Long string test passed: %ld", (long)epoch_time);
+}
+
+TEST_CASE("ESP RainMaker ISO8601 to Epoch with Different Timezones", "[rmaker_utils]")
+{
+    time_t epoch_time;
+    esp_err_t err;
+
+    /* Store original timezone for restoration */
+    char *original_tz = getenv("TZ");
+    char original_tz_backup[64] = {0};
+    if (original_tz) {
+        snprintf(original_tz_backup, sizeof(original_tz_backup), "%s", original_tz);
+    }
+
+    /* Test the same ISO8601 timestamp with different system timezones */
+    const char *test_timestamp_utc = "2023-06-15T14:30:00Z";
+    const char *test_timestamp_offset = "2023-06-15T19:30:00+05:00";  /* Same UTC time as above */
+    time_t expected_epoch = 0;
+
+    /* First, get the expected epoch time with UTC timezone */
+    setenv("TZ", "UTC", 1);
+    tzset();
+    err = esp_rmaker_time_convert_iso8601_to_epoch(test_timestamp_utc, 0, &expected_epoch);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "Expected epoch (UTC): %ld", (long)expected_epoch);
+
+    /* Test 1: Pacific Standard Time (PST) */
+    setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
+    tzset();
+
+    err = esp_rmaker_time_convert_iso8601_to_epoch(test_timestamp_utc, 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_EQUAL(expected_epoch, epoch_time);
+    ESP_LOGI(TAG, "PST timezone: %ld (matches expected)", (long)epoch_time);
+
+    /* Test 2: Japan Standard Time (JST) */
+    setenv("TZ", "JST-9", 1);
+    tzset();
+
+    err = esp_rmaker_time_convert_iso8601_to_epoch(test_timestamp_offset, 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_EQUAL(expected_epoch, epoch_time);
+    ESP_LOGI(TAG, "JST timezone: %ld (matches expected)", (long)epoch_time);
+
+    /* Restore original timezone */
+    if (original_tz_backup[0] != '\0') {
+        setenv("TZ", original_tz_backup, 1);
+    } else {
+        unsetenv("TZ");
+    }
+    tzset();
+    ESP_LOGI(TAG, "Timezone restored");
+}
+
+TEST_CASE("ESP RainMaker ISO8601 DST and Leap Year Tests", "[rmaker_utils]")
+{
+    time_t epoch_time;
+    esp_err_t err;
+
+    /* Test leap year - Feb 29, 2020 (valid leap year date) */
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2020-02-29T12:00:00Z", 0, &epoch_time);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "Leap year Feb 29, 2020: %ld", (long)epoch_time);
+
+    /* Test non-leap year - Feb 28, 2021 vs Mar 1, 2021 should be 24 hours apart */
+    time_t feb28_2021, mar01_2021;
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2021-02-28T12:00:00Z", 0, &feb28_2021);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    err = esp_rmaker_time_convert_iso8601_to_epoch("2021-03-01T12:00:00Z", 0, &mar01_2021);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_EQUAL(86400, mar01_2021 - feb28_2021);  /* 24 hours = 86400 seconds */
+    ESP_LOGI(TAG, "Non-leap year Feb28-Mar01 gap: %ld seconds", (long)(mar01_2021 - feb28_2021));
+
+    /* Store original timezone for DST testing */
+    char *original_tz = getenv("TZ");
+    char original_tz_backup[64] = {0};
+    if (original_tz) {
+        snprintf(original_tz_backup, sizeof(original_tz_backup), "%s", original_tz);
+    }
+
+    /* Test DST transition - same UTC time should give same epoch regardless of system DST */
+    const char *summer_utc = "2023-07-15T14:00:00Z";  /* Summer (DST active in many zones) */
+    const char *winter_utc = "2023-01-15T14:00:00Z";  /* Winter (DST inactive) */
+    time_t summer_epoch, winter_epoch;
+
+    /* Test with PST (observes DST) */
+    setenv("TZ", "PST8PDT,M3.2.0,M11.1.0", 1);
+    tzset();
+
+    err = esp_rmaker_time_convert_iso8601_to_epoch(summer_utc, 0, &summer_epoch);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    err = esp_rmaker_time_convert_iso8601_to_epoch(winter_utc, 0, &winter_epoch);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    ESP_LOGI(TAG, "DST test - Summer UTC: %ld, Winter UTC: %ld", (long)summer_epoch, (long)winter_epoch);
+
+    /* Restore timezone */
+    if (original_tz_backup[0] != '\0') {
+        setenv("TZ", original_tz_backup, 1);
+    } else {
+        unsetenv("TZ");
+    }
+    tzset();
 }
 
 TEST_CASE("ESP RainMaker Command Registration and Handling", "[rmaker_cmd_resp]")
