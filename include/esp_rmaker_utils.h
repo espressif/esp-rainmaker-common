@@ -140,6 +140,18 @@ bool esp_rmaker_time_check(void);
  */
 esp_err_t esp_rmaker_time_wait_for_sync(uint32_t ticks_to_wait);
 
+/** Parse ISO8601 UTC time string (eg. 2025-08-12T06:49:11Z) to epoch seconds
+ *
+ * This parser tolerates fractional seconds (eg. 2025-08-12T06:49:11.123Z) by stripping
+ * the fractional part. Timezone offsets are also supported.
+ *
+ * @param[in] str Pointer to ISO8601 string (UTF-8)
+ * @param[in] len Length of the string in bytes (if 0, function will use strlen)
+ * @param[out] out_epoch Parsed epoch seconds (UTC)
+ * @return ESP_OK on success, error otherwise
+ */
+esp_err_t esp_rmaker_time_convert_iso8601_to_epoch(const char *str, int len, time_t *out_epoch);
+
 /** Set POSIX timezone
  *
  * Set the timezone (TZ environment variable) as per the POSIX format
