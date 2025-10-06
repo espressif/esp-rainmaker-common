@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -14,7 +14,6 @@
 #include <driver/uart.h>
 
 #include <esp_rmaker_common_console.h>
-#include "rmaker_console_internal.h"
 
 static const char *TAG = "esp_rmaker_console";
 static int stop;
