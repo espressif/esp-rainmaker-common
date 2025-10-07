@@ -18,6 +18,9 @@
 static const char *TAG = "esp_rmaker_console";
 static int stop;
 
+#define SCLI_STACK_SIZE CONFIG_ESP_RMAKER_CONSOLE_TASK_STACK
+#define SCLI_TASK_PRIORITY CONFIG_ESP_RMAKER_CONSOLE_TASK_PRIORITY
+
 static void scli_task(void *arg)
 {
     int uart_num = 0;
@@ -88,29 +91,32 @@ static void scli_task(void *arg)
     vTaskDelete(NULL);
 }
 
+#if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
 static esp_err_t scli_init()
 {
     static bool cli_started = false;
     if (cli_started) {
         return ESP_OK;
     }
-#define SCLI_STACK_SIZE 4096
-    if (xTaskCreate(&scli_task, "console_task", SCLI_STACK_SIZE, NULL, 3, NULL) != pdPASS) {
+
+    if (xTaskCreate(&scli_task, "console_task", SCLI_STACK_SIZE, NULL, SCLI_TASK_PRIORITY, NULL) != pdPASS) {
         ESP_LOGE(TAG, "Couldn't create thread");
         return ESP_ERR_NO_MEM;
     }
     cli_started = true;
     return ESP_OK;
 }
+#endif
 
 esp_err_t esp_rmaker_common_console_init()
 {
+#if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
     esp_err_t ret = scli_init();
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "Couldn't initialise console");
         return ret;
     }
-
+#endif
     esp_rmaker_common_register_commands();
     return ESP_OK;
 }
