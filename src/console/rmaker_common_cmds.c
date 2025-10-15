@@ -27,9 +27,7 @@
 #include <esp_rmaker_utils.h>
 
 
-#include "rmaker_console_internal.h"
-
-static const char *TAG = "esp_rmaker_commands";
+static const char *TAG = "rmaker_common_cmds";
 
 static int reboot_cli_handler(int argc, char *argv[])
 {
