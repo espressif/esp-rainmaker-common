@@ -4,3 +4,7 @@
 # Requirements for running hardware tests with pytest
 pytest>=7.0.0
 pytest-embedded[serial]>=1.0.0
+pyserial
+pyyaml
+paramiko
+scp

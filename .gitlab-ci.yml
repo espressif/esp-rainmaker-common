@@ -1,5 +1,6 @@
 stages:
   - build
+  - unittest
 
 variables:
   DOCKER_IMAGE: "espressif/idf:latest"
@@ -25,6 +26,7 @@ before_script:
     EXTRA_CXXFLAGS: "${PEDANTIC_FLAGS}"
   script:
     - cd test_app
+    - mkdir -p $CI_PROJECT_DIR/merged_fw_bins
     - for TARGET in $TARGETS; do
     -   if [[ "$TARGET" == "linux" || "$TARGET" == "esp32c5" ]]; then
     -     idf.py --preview set-target $TARGET
@@ -32,34 +34,86 @@ before_script:
     -     idf.py set-target $TARGET
     -   fi
     -   idf.py build
+    -   if [[ "$TARGET" == "linux" ]]; then
+    -     cp build/rmaker_common_test.elf $CI_PROJECT_DIR/merged_fw_bins/${FW_PREFIX}_${TARGET}.elf
+    -   else
+    -     idf.py merge-bin -o $CI_PROJECT_DIR/merged_fw_bins/${FW_PREFIX}_${TARGET}_merged.bin || true
+    -   fi
     - done
+  artifacts:
+    paths:
+      - merged_fw_bins
+    expire_in: 2 hours
+
+.test_template:
+  stage: unittest
+  image: $DOCKER_IMAGE
+  tags:
+    - idf_unit_test_runner
+
+  before_script:
+    - pip3 install -r test_app/requirements.txt
+    - curl -o resource-pool-cli.py ${RMNG_RESOURCE_POOL}/download-cli
+    - python3 resource-pool-cli.py status
+    - python3 resource-pool-cli.py grab --user-id ${CI_JOB_ID} --resource-type ${TARGET} --wait-time 3600 --timeout 3600
+    - ip=$(python3 -c "import glob, json; f = glob.glob('/root/.resource-pool/${TARGET}*.json')[0]; print(json.load(open(f))['data']['ip'])")
+    - rfc_port=$(python3 -c "import glob, json; f = glob.glob('/root/.resource-pool/${TARGET}*.json')[0]; print(json.load(open(f))['data']['rfc_port'])")
+    - export PORT=rfc2217://${ip}:${rfc_port}
+    - python3 resource-pool-cli.py erase-flash /root/.resource-pool/${TARGET}*.json
+    - python3 resource-pool-cli.py flash $CI_PROJECT_DIR/merged_fw_bins/${FW_PREFIX}_${TARGET}_merged.bin 0x0 /root/.resource-pool/${TARGET}*.json
+    - python3 resource-pool-cli.py rfc2217-server /root/.resource-pool/${TARGET}*.json
+
+  script:
+    - cd test_app
+    - python run_test.py ${PORT} -l "OK" --log-file result.txt
+    - if grep -q FAIL result.txt; then
+    -   echo "❌ Found FAIL entries in result.txt"
+    -   exit 1
+    - else
+    -   echo "✅ No FAIL entries found"
+    - fi
+
+  after_script:
+    - python3 resource-pool-cli.py release-all --user-id ${CI_JOB_ID}
 
 build_idf_v5.1:
   extends: .build_template
   image: espressif/idf:release-v5.1
   variables:
     TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2"
+    FW_PREFIX: "idf_v5.1"
 
 build_idf_v5.2:
   extends: .build_template
   image: espressif/idf:release-v5.2
   variables:
     TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2"
+    FW_PREFIX: "idf_v5.2"
 
 build_idf_v5.3:
   extends: .build_template
   image: espressif/idf:release-v5.3
   variables:
     TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2"
+    FW_PREFIX: "idf_v5.3"
 
 build_idf_v5.4:
   extends: .build_template
   image: espressif/idf:release-v5.4
   variables:
     TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32c2 esp32p4 esp32h2 linux"
+    FW_PREFIX: "idf_v5.4"
 
 build_idf_v5.5:
   extends: .build_template
   image: espressif/idf:release-v5.5
   variables:
     TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32p4 esp32c5 esp32c2 esp32h2 linux"
+    FW_PREFIX: "idf_v5.5"
+
+test_idf_v5.5:
+  extends: .test_template
+  image: espressif/idf:release-v5.5
+  variables:
+    TARGET: "esp32c3"
+    FW_PREFIX: "idf_v5.5"
