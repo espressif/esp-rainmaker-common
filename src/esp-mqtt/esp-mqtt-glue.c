@@ -14,6 +14,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 #include <sdkconfig.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -68,6 +69,46 @@ typedef struct {
 
 static void esp_mqtt_glue_deinit(void);
 
+/**
+ * @brief Check if an MQTT topic matches a subscription pattern with wildcards
+ * 
+ * Supports MQTT single-level wildcard:
+ * - '+' matches a single level (e.g., "node/+/params" matches "node/device1/params")
+ * 
+ * @param topic_filter The subscription pattern (may contain '+' wildcards)
+ * @param topic_name The actual topic name to match
+ * @param topic_len Length of the topic name
+ * @return true if the topic matches the filter, false otherwise
+ */
+static bool mqtt_topic_matches(const char *topic_filter, const char *topic_name, int topic_len)
+{
+    const char *filter_pos = topic_filter;
+    const char *topic_pos = topic_name;
+    int topic_consumed = 0;
+
+    while (*filter_pos && topic_consumed < topic_len) {
+        if (*filter_pos == '+') {
+            // Single-level wildcard - skip to next '/' or end of topic
+            while (topic_consumed < topic_len && *topic_pos != '/') {
+                topic_pos++;
+                topic_consumed++;
+            }
+            filter_pos++;
+        } else if (*filter_pos == *topic_pos) {
+            // Characters match, advance both
+            filter_pos++;
+            topic_pos++;
+            topic_consumed++;
+        } else {
+            // Characters don't match
+            return false;
+        }
+    }
+
+    // Both strings must be fully consumed
+    return (*filter_pos == '\0' && topic_consumed == topic_len);
+}
+
 /* Helper function to reset all subscription states */
 static void esp_mqtt_glue_reset_subscription_states(void)
 {
@@ -84,9 +125,15 @@ static void esp_mqtt_glue_subscribe_callback(const char *topic, int topic_len, c
     int i;
     for (i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
         if (subscriptions[i]) {
-            if ((strncmp(topic, subscriptions[i]->topic, topic_len) == 0)
-                    && (topic_len == strlen(subscriptions[i]->topic))) {
-                subscriptions[i]->cb(subscriptions[i]->topic, (void *)data, data_len, subscriptions[i]->priv);
+            if ((mqtt_topic_matches(subscriptions[i]->topic, topic, topic_len))) {
+                char *actual_topic = strndup(topic, topic_len);
+                if (!actual_topic) {
+                    ESP_LOGE(TAG, "Failed to allocate memory for actual topic");
+                    return;
+                }
+                /* send the actual topic to the callback */
+                subscriptions[i]->cb(actual_topic, (void *)data, data_len, subscriptions[i]->priv);
+                free(actual_topic);
             }
         }
     }
