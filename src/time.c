@@ -260,57 +260,6 @@ static inline time_t rmaker_timegm(struct tm *tm)
     return (time_t)seconds;
 }
 
-/* Supports "YYYY-MM-DDTHH:MM:SSZ" and "YYYY-MM-DDTHH:MM:SS[+-]HH:MM" */
-time_t iso8601_to_epoch(const char *iso_string) {
-    struct tm tm_info = {0};
-    int year, month, day, hour, minute, second;
-    int tz_hour = 0, tz_minute = 0;
-    char tz_sign = '+';
-
-    if (sscanf(iso_string, "%d-%d-%dT%d:%d:%d%c%d:%d",
-               &year, &month, &day, &hour, &minute, &second,
-               &tz_sign, &tz_hour, &tz_minute) == 9) {
-        /* parsed with offset */
-    } else if (sscanf(iso_string, "%d-%d-%dT%d:%d:%dZ",
-                      &year, &month, &day, &hour, &minute, &second) == 6) {
-        tz_hour = 0; tz_minute = 0; tz_sign = '+';
-    } else {
-        ESP_LOGE(TAG, "Error: Invalid ISO 8601 format.\n");
-        return (time_t)-1;
-    }
-
-    tm_info.tm_year  = year - 1900;
-    tm_info.tm_mon   = month - 1;
-    tm_info.tm_mday  = day;
-    tm_info.tm_hour  = hour;
-    tm_info.tm_min   = minute;
-    tm_info.tm_sec   = second;
-    tm_info.tm_isdst = -1; /* let system decide DST for this broken-down time */
-
-    /* Interpret parsed wall-clock as system-local */
-    time_t local_epoch = mktime(&tm_info);
-    if (local_epoch == (time_t)-1) {
-        ESP_LOGE(TAG, "Error: mktime() failed.\n");
-        return (time_t)-1;
-    }
-
-    /* Compute system offset (local - UTC) at that instant WITHOUT touching TZ */
-    struct tm tmp_local;
-    localtime_r(&local_epoch, &tmp_local);
-    tmp_local.tm_isdst = -1;                   /* recompute DST if needed */
-    /* Treat the same wall-clock fields as if they were UTC: */
-    time_t utc_from_local_as_utc = rmaker_timegm(&tmp_local);
-    int64_t sys_offset = (int64_t)utc_from_local_as_utc - (int64_t)local_epoch;
-
-    /* parsed offset (timestamp's zone) */
-    int64_t parsed_offset = (int64_t)tz_hour * 3600 + (int64_t)tz_minute * 60;
-    if (tz_sign == '-') parsed_offset = -parsed_offset;
-
-    /* FINAL: Add the system-local offset and the parsed offset (timezone offset) */
-    int64_t final_epoch64 = (int64_t)local_epoch + sys_offset - parsed_offset;
-    return (time_t)final_epoch64;
-}
-
 esp_err_t esp_rmaker_time_convert_iso8601_to_epoch(const char *str, int len, time_t *out_epoch)
 {
     if (!str || !out_epoch) {
