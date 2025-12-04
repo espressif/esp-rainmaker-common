@@ -1,4 +1,4 @@
-version: "1.5.2"
+version: "1.5.3"
 description: ESP RainMaker firmware agent Common component
 url: https://github.com/espressif/esp-rainmaker-common
 dependencies:
