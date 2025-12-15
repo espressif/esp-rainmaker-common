@@ -594,6 +594,13 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
         },
         .session = {
             .keepalive = CONFIG_ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL,
+            .last_will = {
+                .topic = (const char *)conn_params->mqtt_last_will_topic,
+                .msg = (const char *)conn_params->mqtt_last_will_message,
+                .msg_len = conn_params->mqtt_last_will_message_len,
+                .qos = RMAKER_MQTT_QOS1,
+                .retain = false
+            },
 #ifdef CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION
             .disable_clean_session = 1,
 #endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */

@@ -46,6 +46,12 @@ typedef struct {
     size_t server_cert_len;
     /** Pointer for digital signature peripheral context */
     void *ds_data;
+    /** Last Will and Testament topic */
+    char *mqtt_last_will_topic;
+    /** Last Will and Testament message */
+    char *mqtt_last_will_message;
+    /** Last Will and Testament message length */
+    size_t mqtt_last_will_message_len;
 } esp_rmaker_mqtt_conn_params_t;
 
 /** MQTT Get Connection Parameters function prototype
