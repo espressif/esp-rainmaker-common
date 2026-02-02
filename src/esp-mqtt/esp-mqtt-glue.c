@@ -534,29 +534,14 @@ static esp_err_t esp_mqtt_glue_disconnect(void)
 #ifdef ESP_RMAKER_MQTT_USE_PORT_443
 static const char *alpn_protocols[] = { "x-amzn-mqtt-ca", NULL };
 #endif /* ESP_RMAKER_MQTT_USE_PORT_443 */
-static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
+
+/* Static helper to create MQTT client config from connection params */
+static esp_mqtt_client_config_t esp_mqtt_glue_create_client_config(esp_rmaker_mqtt_conn_params_t *conn_params)
 {
 #ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
     const char *username = esp_get_aws_ppi();
-    ESP_LOGI(TAG, "AWS PPI: %s", username);
 #endif
-    if (mqtt_data) {
-        ESP_LOGE(TAG, "MQTT already initialized");
-        return ESP_OK;
-    }
-    if (!conn_params) {
-        ESP_LOGE(TAG, "Connection params are mandatory for esp_mqtt_glue_init");
-        return ESP_FAIL;
-    }
-    ESP_LOGI(TAG, "Initialising MQTT");
-    mqtt_data = calloc(1, sizeof(esp_mqtt_glue_data_t));
-    if (!mqtt_data) {
-        ESP_LOGE(TAG, "Failed to allocate memory for esp_mqtt_glue_data_t");
-        return ESP_ERR_NO_MEM;
-    }
-    mqtt_data->conn_params = conn_params;
-
-    const esp_mqtt_client_config_t mqtt_client_cfg = {
+    esp_mqtt_client_config_t mqtt_client_cfg = {
         .broker = {
             .address = {
                 .hostname = conn_params->mqtt_host,
@@ -594,11 +579,60 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
         },
         .session = {
             .keepalive = CONFIG_ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL,
+            .last_will = {
+                .topic = (const char *)conn_params->mqtt_last_will_topic,
+                .msg = (const char *)conn_params->mqtt_last_will_message,
+                .msg_len = conn_params->mqtt_last_will_message_len,
+                .qos = RMAKER_MQTT_QOS1,
+                .retain = false
+            },
 #ifdef CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION
             .disable_clean_session = 1,
 #endif /* CONFIG_ESP_RMAKER_MQTT_PERSISTENT_SESSION */
         },
     };
+    return mqtt_client_cfg;
+}
+
+/* Static helper to log LWT configuration */
+static void esp_mqtt_glue_log_lwt(esp_rmaker_mqtt_conn_params_t *conn_params)
+{
+    if (conn_params->mqtt_last_will_topic) {
+        ESP_LOGI(TAG, "MQTT LWT topic: %s", conn_params->mqtt_last_will_topic);
+        if (conn_params->mqtt_last_will_message && conn_params->mqtt_last_will_message_len > 0) {
+            ESP_LOGI(TAG, "MQTT LWT message: %.*s", (int)conn_params->mqtt_last_will_message_len,
+                     conn_params->mqtt_last_will_message);
+        }
+    } else {
+        ESP_LOGI(TAG, "MQTT LWT not configured");
+    }
+}
+
+static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
+{
+#ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
+    const char *username = esp_get_aws_ppi();
+    ESP_LOGI(TAG, "AWS PPI: %s", username);
+#endif
+    if (mqtt_data) {
+        ESP_LOGE(TAG, "MQTT already initialized");
+        return ESP_OK;
+    }
+    if (!conn_params) {
+        ESP_LOGE(TAG, "Connection params are mandatory for esp_mqtt_glue_init");
+        return ESP_FAIL;
+    }
+    ESP_LOGI(TAG, "Initialising MQTT");
+    mqtt_data = calloc(1, sizeof(esp_mqtt_glue_data_t));
+    if (!mqtt_data) {
+        ESP_LOGE(TAG, "Failed to allocate memory for esp_mqtt_glue_data_t");
+        return ESP_ERR_NO_MEM;
+    }
+    mqtt_data->conn_params = conn_params;
+
+    esp_mqtt_client_config_t mqtt_client_cfg = esp_mqtt_glue_create_client_config(conn_params);
+    esp_mqtt_glue_log_lwt(conn_params);
+
     mqtt_data->mqtt_client = esp_mqtt_client_init(&mqtt_client_cfg);
     if (!mqtt_data->mqtt_client) {
         ESP_LOGE(TAG, "esp_mqtt_client_init failed");
@@ -621,6 +655,54 @@ static void esp_mqtt_glue_deinit(void)
     }
 }
 
+/* Update MQTT config (including LWT) and reconnect.
+ * Subscriptions are preserved across the reconnection.
+ */
+static esp_err_t esp_mqtt_glue_update_config(esp_rmaker_mqtt_conn_params_t *conn_params)
+{
+    if (!mqtt_data || !mqtt_data->mqtt_client) {
+        ESP_LOGE(TAG, "MQTT not initialized, cannot update config");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!conn_params) {
+        ESP_LOGE(TAG, "Connection params are mandatory for update_config");
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(TAG, "Updating MQTT config and reconnecting");
+
+    /* Stop the MQTT client (disconnect) */
+    esp_err_t err = esp_mqtt_client_stop(mqtt_data->mqtt_client);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to stop MQTT client: %d", err);
+        /* Continue anyway - try to update config */
+    }
+
+    /* Update the stored conn_params */
+    mqtt_data->conn_params = conn_params;
+
+    /* Create new config with updated params */
+    esp_mqtt_client_config_t mqtt_client_cfg = esp_mqtt_glue_create_client_config(conn_params);
+    esp_mqtt_glue_log_lwt(conn_params);
+
+    /* Update the client config using esp_mqtt_set_config */
+    err = esp_mqtt_set_config(mqtt_data->mqtt_client, &mqtt_client_cfg);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to update MQTT config: %d", err);
+        return err;
+    }
+
+    /* Start the client again (connect) */
+    err = esp_mqtt_client_start(mqtt_data->mqtt_client);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start MQTT client: %d", err);
+        return err;
+    }
+
+    ESP_LOGI(TAG, "MQTT config updated, reconnecting...");
+    return ESP_OK;
+}
+
 esp_err_t esp_rmaker_mqtt_glue_setup(esp_rmaker_mqtt_config_t *mqtt_config)
 {
     mqtt_config->init           = esp_mqtt_glue_init;
@@ -630,6 +712,7 @@ esp_err_t esp_rmaker_mqtt_glue_setup(esp_rmaker_mqtt_config_t *mqtt_config)
     mqtt_config->publish        = esp_mqtt_glue_publish;
     mqtt_config->subscribe      = esp_mqtt_glue_subscribe;
     mqtt_config->unsubscribe    = esp_mqtt_glue_unsubscribe;
+    mqtt_config->update_config  = esp_mqtt_glue_update_config;
     mqtt_config->setup_done     = true;
     return ESP_OK;
 }

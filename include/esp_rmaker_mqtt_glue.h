@@ -46,6 +46,12 @@ typedef struct {
     size_t server_cert_len;
     /** Pointer for digital signature peripheral context */
     void *ds_data;
+    /** Last Will and Testament topic */
+    char *mqtt_last_will_topic;
+    /** Last Will and Testament message */
+    char *mqtt_last_will_message;
+    /** Last Will and Testament message length */
+    size_t mqtt_last_will_message_len;
 } esp_rmaker_mqtt_conn_params_t;
 
 /** MQTT Get Connection Parameters function prototype
@@ -133,6 +139,18 @@ typedef esp_err_t (*esp_rmaker_mqtt_subscribe_t)(const char *topic, esp_rmaker_m
  */
 typedef esp_err_t (*esp_rmaker_mqtt_unsubscribe_t)(const char *topic);
 
+/** MQTT Update Config function prototype
+ *
+ * Updates the MQTT configuration (including LWT) and reconnects.
+ * This preserves subscriptions across the reconnection.
+ *
+ * @param[in] conn_params The new MQTT connection parameters.
+ *
+ * @return ESP_OK on success.
+ * @return error in case of any error.
+ */
+typedef esp_err_t (*esp_rmaker_mqtt_update_config_t)(esp_rmaker_mqtt_conn_params_t *conn_params);
+
 /**  MQTT configuration */
 typedef struct {
     /** Flag to indicate if the MQTT config setup is done */
@@ -153,6 +171,8 @@ typedef struct {
     esp_rmaker_mqtt_subscribe_t subscribe;
     /** Pointer to MQTT Unsubscribe function */
     esp_rmaker_mqtt_unsubscribe_t unsubscribe;
+    /** Pointer to MQTT Update Config function */
+    esp_rmaker_mqtt_update_config_t update_config;
 } esp_rmaker_mqtt_config_t;
 
 /** Setup MQTT Glue
