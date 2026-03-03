@@ -11,11 +11,39 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <freertos/queue.h>
-#include <driver/uart.h>
 
 #include <esp_rmaker_common_console.h>
 
-static const char *TAG = "esp_rmaker_console";
+static const char *TAG = "rmaker_console";
+
+#if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
+#ifdef CONFIG_IDF_TARGET_LINUX
+static esp_err_t scli_init()
+{
+    esp_console_repl_t *repl = NULL;
+    esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
+
+#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
+    esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
+
+#elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
+    esp_console_dev_usb_cdc_config_t hw_config = ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_console_new_repl_usb_cdc(&hw_config, &repl_config, &repl));
+
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+    esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
+
+#else
+#error Unsupported console type
+#endif
+
+    ESP_ERROR_CHECK(esp_console_start_repl(repl));
+    return ESP_OK;
+}
+#else /* CONFIG_IDF_TARGET_LINUX */
+#include <driver/uart.h>
 static int stop;
 
 #define SCLI_STACK_SIZE CONFIG_ESP_RMAKER_CONSOLE_TASK_STACK
@@ -87,12 +115,12 @@ static void scli_task(void *arg)
             break;
         }
     }
+
     ESP_LOGE(TAG, "Stopped CLI");
     vTaskDelete(NULL);
 }
 
-#if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
-static esp_err_t scli_init()
+static esp_err_t scli_init(void)
 {
     static bool cli_started = false;
     if (cli_started) {
@@ -106,7 +134,8 @@ static esp_err_t scli_init()
     cli_started = true;
     return ESP_OK;
 }
-#endif
+#endif /* CONFIG_IDF_TARGET_LINUX */
+#endif /* CONFIG_ESP_RMAKER_CONSOLE_ENABLED */
 
 esp_err_t esp_rmaker_common_console_init()
 {
@@ -116,6 +145,8 @@ esp_err_t esp_rmaker_common_console_init()
         ESP_LOGE(TAG, "Couldn't initialise console");
         return ret;
     }
+#else
+    ESP_LOGD(TAG, "Console is disabled as CONFIG_ESP_RMAKER_CONSOLE_ENABLED is not set");
 #endif
     esp_rmaker_common_register_commands();
     return ESP_OK;

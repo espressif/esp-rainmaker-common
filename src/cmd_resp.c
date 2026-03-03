@@ -197,7 +197,7 @@ static esp_err_t esp_rmaker_cmd_prepare_response(esp_rmaker_cmd_ctx_t *cmd_ctx, 
     size_t publish_size = response_size + 100; /* +100 for rest of metadata. TODO: Do exact calculation */
     void *publish_data = MEM_CALLOC_EXTRAM(1, publish_size);
     if (!publish_data) {
-        ESP_LOGE(TAG, "Failed to allocate buffer of size %d for response.", response_size + 100);
+        ESP_LOGE(TAG, "Failed to allocate buffer of size %zu for response.", response_size + 100);
         return ESP_ERR_NO_MEM;
     }
     esp_rmaker_tlv_data_t tlv_data;
@@ -261,7 +261,7 @@ esp_err_t esp_rmaker_cmd_register(uint16_t cmd, uint8_t access, esp_rmaker_cmd_h
             cmd_info->handler = handler;
             cmd_info->priv = priv;
             esp_rmaker_cmd_list[i] = cmd_info;
-            ESP_LOGI(TAG, "Registered command %d", cmd);
+            ESP_LOGI(TAG, "Registered command: cmd=%d, access=%d", cmd, access);
             return ESP_OK;
         }
     }
@@ -447,7 +447,7 @@ esp_err_t esp_rmaker_cmd_resp_prepare_response_payload(const char *req_id, uint8
         payload_size += esp_rmaker_get_tlv_encoded_size(data_size);
     }
 
-    ESP_LOGD(TAG, "Calculated payload size: %u", payload_size);
+    ESP_LOGD(TAG, "Calculated payload size: %zu", payload_size);
 
     uint8_t *payload_buffer = MEM_CALLOC_EXTRAM(1, payload_size);
     if (!payload_buffer) {
