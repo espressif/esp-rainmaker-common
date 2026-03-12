@@ -171,7 +171,7 @@ static int esp_rmaker_add_tlv(esp_rmaker_tlv_data_t *tlv_data, uint8_t type, int
 /* Get user role string from flag. Useful for printing */
 const char *esp_rmaker_get_user_role_string(uint8_t user_role)
 {
-    switch (user_role) {
+    switch (ESP_RMAKER_GET_USER_ROLE(user_role)) {
     case ESP_RMAKER_USER_ROLE_SUPER_ADMIN:
         return "Admin";
     case ESP_RMAKER_USER_ROLE_PRIMARY_USER:
@@ -321,13 +321,14 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
         ESP_LOGE(TAG, "Request id, user role or command id cannot be 0");
         return esp_rmaker_cmd_prepare_response(&cmd_ctx, ESP_RMAKER_CMD_STATUS_CMD_INVALID, NULL, 0, output, output_len);
     }
-    ESP_LOGI(TAG, "Got Req. Id: %s, Role = %s, Cmd = %d", cmd_ctx.req_id,
-             esp_rmaker_get_user_role_string(cmd_ctx.user_role), cmd_ctx.cmd);
+    ESP_LOGI(TAG, "Got Req. Id: %s, Role = %s, Sub-Role = %d, Cmd = %d", cmd_ctx.req_id,
+             esp_rmaker_get_user_role_string(cmd_ctx.user_role),
+             ESP_RMAKER_GET_USER_SUB_ROLE(cmd_ctx.user_role), cmd_ctx.cmd);
 
     /* Search for the command info and handle it if found */
     esp_rmaker_cmd_info_t *cmd_info = esp_rmaker_get_cmd_info(cmd_ctx.cmd);
     if (cmd_info) {
-        if (cmd_info->access & cmd_ctx.user_role) {
+        if (cmd_info->access & ESP_RMAKER_GET_USER_ROLE(cmd_ctx.user_role)) {
             void *data = NULL;
             int data_size = esp_rmaker_get_tlv_length(input, input_len, ESP_RMAKER_TLV_TYPE_DATA);
             if (data_size > 0) {

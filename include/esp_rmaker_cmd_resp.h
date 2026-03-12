@@ -29,6 +29,18 @@ extern "C"
  */
 #define ESP_RMAKER_USER_ROLE_NODE           (1 << 3)
 
+/** Mask to extract the base role (lower 4 bits) from the role byte */
+#define ESP_RMAKER_USER_ROLE_MASK           (0x0F)
+
+/** Mask to extract the sub-role (upper 4 bits) from the role byte */
+#define ESP_RMAKER_USER_SUB_ROLE_MASK       (0xF0)
+
+/** Get the base role from a role byte */
+#define ESP_RMAKER_GET_USER_ROLE(role)      ((role) & ESP_RMAKER_USER_ROLE_MASK)
+
+/** Get the sub-role (shifted to 0-15 range) from a role byte */
+#define ESP_RMAKER_GET_USER_SUB_ROLE(role)  (((role) & ESP_RMAKER_USER_SUB_ROLE_MASK) >> 4)
+
 
 /** RainMaker Command Response TLV8 Types */
 typedef enum {
