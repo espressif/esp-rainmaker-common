@@ -16,7 +16,12 @@
 #include <esp_wifi.h>
 #endif
 #include <esp_log.h>
-#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_THREAD
+
+#if defined(CONFIG_ESP_WIFI_ENABLED) || defined(CONFIG_ESP32_WIFI_ENABLED) || defined(CONFIG_ESP_WIFI_REMOTE_ENABLED)
+#define RMAKER_WIFI_ENABLED
+#endif
+
+#ifdef CONFIG_OPENTHREAD_ENABLED
 #include <esp_mac.h>
 #endif
 
@@ -65,7 +70,7 @@ char __attribute__((weak)) *platform_get_product_name()
 char __attribute__((weak)) *platform_get_product_UID()
 {
     static char mac_str[13];
-#if defined(CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI)
+#ifdef RMAKER_WIFI_ENABLED
     uint8_t eth_mac[6];
     esp_err_t err = esp_wifi_get_mac(WIFI_IF_STA, eth_mac);
     if (err != ESP_OK) {
@@ -74,7 +79,7 @@ char __attribute__((weak)) *platform_get_product_UID()
     }
     snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X",
             eth_mac[0], eth_mac[1], eth_mac[2], eth_mac[3], eth_mac[4], eth_mac[5]);
-#elif defined(CONFIG_ESP_RMAKER_NETWORK_OVER_THREAD) /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
+#elif defined(CONFIG_OPENTHREAD_ENABLED)
     uint8_t base_mac[6];
     esp_err_t err = esp_read_mac(base_mac, ESP_MAC_BASE);
     if (err != ESP_OK) {
@@ -83,7 +88,7 @@ char __attribute__((weak)) *platform_get_product_UID()
     }
     snprintf(mac_str, sizeof(mac_str), "%02X%02X%02X%02X%02X%02X",
              base_mac[0], base_mac[1], base_mac[2], base_mac[3], base_mac[4], base_mac[5]);
-#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_THREAD */
+#endif /* CONFIG_OPENTHREAD_ENABLED */
     return mac_str;
 }
 

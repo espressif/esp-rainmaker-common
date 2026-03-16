@@ -13,6 +13,10 @@
 #include <esp_wifi.h>
 #endif
 #include <nvs_flash.h>
+
+#if defined(CONFIG_ESP_WIFI_ENABLED) || defined(CONFIG_ESP32_WIFI_ENABLED) || defined(CONFIG_ESP_WIFI_REMOTE_ENABLED)
+#define RMAKER_WIFI_ENABLED
+#endif
 #include <esp_rmaker_common_events.h>
 
 ESP_EVENT_DEFINE_BASE(RMAKER_COMMON_EVENT);
@@ -63,7 +67,7 @@ esp_err_t esp_rmaker_reboot(int8_t seconds)
     return ESP_OK;
 }
 
-#if defined(CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI)
+#ifdef RMAKER_WIFI_ENABLED
 #ifndef CONFIG_IDF_TARGET_LINUX
 static esp_err_t __esp_rmaker_wifi_reset(int8_t reboot_seconds)
 {
@@ -80,22 +84,22 @@ static esp_err_t __esp_rmaker_wifi_reset(int8_t reboot_seconds)
     return ESP_OK;
 }
 #endif /* CONFIG_IDF_TARGET_LINUX */
-#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
+#endif /* RMAKER_WIFI_ENABLED */
 
 static esp_err_t __esp_rmaker_factory_reset(int8_t reboot_seconds)
 {
     nvs_flash_deinit();
     nvs_flash_erase();
-#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
+#ifdef RMAKER_WIFI_ENABLED
     esp_wifi_restore();
-#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
+#endif /* RMAKER_WIFI_ENABLED */
     if (reboot_seconds >= 0) {
         esp_rmaker_reboot(reboot_seconds);
     }
     return ESP_OK;
 }
 
-#if defined(CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI)
+#ifdef RMAKER_WIFI_ENABLED
 #ifndef CONFIG_IDF_TARGET_LINUX
 static void esp_rmaker_wifi_reset_cb(TimerHandle_t handle)
 {
@@ -118,7 +122,7 @@ static void esp_rmaker_wifi_reset_cb(TimerHandle_t handle)
     reset_timer = NULL;
 }
 #endif /* CONFIG_IDF_TARGET_LINUX */
-#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
+#endif /* RMAKER_WIFI_ENABLED */
 
 static void esp_rmaker_factory_reset_cb(TimerHandle_t handle)
 {
@@ -163,7 +167,7 @@ static esp_err_t esp_rmaker_start_reset_timer(int8_t reset_seconds, int8_t reboo
 
 esp_err_t esp_rmaker_wifi_reset(int8_t reset_seconds, int8_t reboot_seconds)
 {
-#ifdef CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
+#ifdef RMAKER_WIFI_ENABLED
     esp_err_t err = ESP_FAIL;
     /* If reset time is 0, just do it right away */
     if (reset_seconds == 0) {
@@ -178,7 +182,7 @@ esp_err_t esp_rmaker_wifi_reset(int8_t reset_seconds, int8_t reboot_seconds)
     return ESP_OK;
 #else
     return ESP_ERR_NOT_SUPPORTED;
-#endif /* CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI */
+#endif /* RMAKER_WIFI_ENABLED */
 }
 
 esp_err_t esp_rmaker_factory_reset(int8_t reset_seconds, int8_t reboot_seconds)

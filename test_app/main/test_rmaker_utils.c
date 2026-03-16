@@ -106,7 +106,7 @@ TEST_CASE("ESP RainMaker Wi-Fi Reset API Test", "[rmaker_utils]")
     // Set a delay so the test can finish before reset starts
     ESP_LOGI(TAG, "Testing Wi-Fi reset API (with 120 second delay, won't actually reset during test)");
     esp_err_t err = esp_rmaker_wifi_reset(120, -1);
-#if CONFIG_ESP_RMAKER_NETWORK_OVER_WIFI
+#if defined(CONFIG_ESP_WIFI_ENABLED) || defined(CONFIG_ESP32_WIFI_ENABLED) || defined(CONFIG_ESP_WIFI_REMOTE_ENABLED)
     TEST_ASSERT_EQUAL(ESP_OK, err);
 #else
     TEST_ASSERT_EQUAL(ESP_ERR_NOT_SUPPORTED, err);
