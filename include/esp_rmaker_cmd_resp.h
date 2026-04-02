@@ -50,7 +50,7 @@ typedef enum {
     ESP_RMAKER_TLV_TYPE_USER_ROLE,
     /** Status : 1 byte */
     ESP_RMAKER_TLV_TYPE_STATUS,
-    /** Timestamp : TBD */
+    /** Timestamp : 4 bytes, little endian epoch */
     ESP_RMAKER_TLV_TYPE_TIMESTAMP,
     /** Command : 2 bytes*/
     ESP_RMAKER_TLV_TYPE_CMD,
@@ -82,6 +82,8 @@ typedef struct {
     char req_id[REQ_ID_LEN];
     /** User Role */
     uint8_t user_role;
+    /** Timestamp (epoch seconds). 0 if not present in the command. */
+    uint32_t timestamp;
 } esp_rmaker_cmd_ctx_t;
 
 typedef enum {
