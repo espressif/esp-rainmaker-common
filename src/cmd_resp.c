@@ -351,7 +351,7 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
                 ESP_LOGW(TAG, "No data received for the command.");
                 data_size = 0;
             }
-            void *response;
+            void *response = NULL;
             size_t response_size = 0;
             esp_err_t err = cmd_info->handler(data, data_size, &response, &response_size, &cmd_ctx, cmd_info->priv);
             if (err == ESP_OK) {
@@ -362,6 +362,9 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
             if (response && cmd_info->free_on_return) {
                 ESP_LOGI(TAG, "Freeing response buffer.");
                 free(response);
+            }
+            if (data) {
+                free(data);
             }
             return err;
         } else {
