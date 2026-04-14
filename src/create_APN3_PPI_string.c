@@ -170,7 +170,10 @@ int validate_platform_inputs(char *product_name, char *product_uid, char *produc
 {
   int retval = INVALID;
 
-  if ( (strlen(product_name) + strlen(product_uid) + strlen(product_version)) <= MAX_LEN_FIELDS_1_2_3)
+  if (!product_name || !product_uid || !product_version) {
+      ESP_LOGE(TAG, "Error: NULL field(s)");
+  }
+  else if ((strlen(product_name) + strlen(product_uid) + strlen(product_version)) <= MAX_LEN_FIELDS_1_2_3)
   {   /* field 1,2,3 length check passed */
 
       if (validate_sku_code(silicon_sku_code) == VALID)

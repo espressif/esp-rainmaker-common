@@ -620,6 +620,10 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
 {
 #ifdef CONFIG_ESP_RMAKER_MQTT_SEND_USERNAME
     const char *username = esp_get_aws_ppi();
+    if (!username) {
+        ESP_LOGE(TAG, "username received is NULL");
+        return ESP_FAIL;
+    }
     ESP_LOGI(TAG, "AWS PPI: %s", username);
 #endif
     if (mqtt_data) {
