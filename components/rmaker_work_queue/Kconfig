@@ -1,10 +1,18 @@
-menu "ESP RainMaker Work Queue"
+menu "ESP RainMaker Work Queue (defaults)"
+
+    config ESP_RMAKER_WORK_QUEUE_SIZE
+        int "ESP RainMaker Work Queue size"
+        range 1 256
+        default 8
+        help
+            Maximum number of pending jobs in the ESP RainMaker Work Queue.
+            Each entry uses 8 bytes of internal RAM.
 
     config ESP_RMAKER_WORK_QUEUE_TASK_STACK
         int "ESP RainMaker Work Queue Task stack"
         default 5120
         help
-            Stack size for the ESP RainMaker Work Queue Task.
+            Stack size in bytes for the ESP RainMaker Work Queue Task.
 
     config ESP_RMAKER_WORK_QUEUE_TASK_PRIORITY
         int "ESP RainMaker Work Queue Task priority"
@@ -12,5 +20,22 @@ menu "ESP RainMaker Work Queue"
         help
             Priority for the ESP RainMaker Work Queue Task. Not recommended to be changed
             unless you really need it.
+
+    config ESP_RMAKER_WORK_QUEUE_PREFER_EXT_RAM
+        bool "Prefer external RAM for the ESP RainMaker Work Queue Task stack"
+        depends on SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY || FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
+        default n
+        help
+            Whether to prefer to allocate the ESP RainMaker Work Queue Task
+            stack in external RAM (SPIRAM), with internal-RAM fallback. The
+            TCB is always kept in internal RAM.
+
+            WARNING: A task with its stack in SPIRAM will fault if code runs
+            while the flash cache is disabled (e.g. during any NVS/flash
+            write, since SPIRAM shares the cache). Do NOT enable this unless
+            you can guarantee that no work function scheduled on this queue
+            performs flash/NVS writes (or any other cache-disabling
+            operation). The global RainMaker work queue does perform NVS
+            writes, so leaving this at 'n' is strongly recommended.
 
 endmenu

@@ -1,5 +1,5 @@
 name: rmaker_common
-version: "1.11.1"
+version: "1.12.0"
 description: ESP RainMaker firmware agent Common component
 url: https://github.com/espressif/esp-rainmaker-common
 # Optional components, published on their own.
@@ -47,6 +47,6 @@ dependencies:
 
   # Work Queue
   espressif/rmaker_work_queue:
-    version: "^1.0.0"
+    version: "^1.1.0"
     require: public
     override_path: ./components/rmaker_work_queue
