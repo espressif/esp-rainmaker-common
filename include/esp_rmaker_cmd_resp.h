@@ -38,8 +38,8 @@ extern "C"
 /** Get the base role from a role byte */
 #define ESP_RMAKER_GET_USER_ROLE(role)      ((role) & ESP_RMAKER_USER_ROLE_MASK)
 
-/** Get the sub-role (shifted to 0-15 range) from a role byte */
-#define ESP_RMAKER_GET_USER_SUB_ROLE(role)  (((role) & ESP_RMAKER_USER_SUB_ROLE_MASK) >> 4)
+/** Get the sub-role number (1-4) from a role byte. Returns 0 if no sub-role bit is set. */
+#define ESP_RMAKER_GET_USER_SUB_ROLE(role)  (__builtin_ffs(((role) & ESP_RMAKER_USER_SUB_ROLE_MASK) >> 4))
 
 
 /** RainMaker Command Response TLV8 Types */
