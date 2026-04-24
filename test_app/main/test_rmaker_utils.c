@@ -390,3 +390,94 @@ TEST_CASE("ESP RainMaker Command Registration and Handling", "[rmaker_cmd_resp]"
     err = esp_rmaker_cmd_deregister(ESP_RMAKER_CMD_TYPE_SET_PARAMS);
     TEST_ASSERT_EQUAL(ESP_OK, err);
 }
+
+#define TEST_CMD_DEFERRED   (ESP_RMAKER_CMD_CUSTOM_START + 10U)
+
+static uint8_t test_tlv_get_status(const void *buf, size_t len)
+{
+    const uint8_t *p = (const uint8_t *)buf;
+    size_t rem = len;
+    while (rem >= 2) {
+        uint8_t type = p[0];
+        uint8_t l = p[1];
+        if (rem < (size_t)(2 + l)) {
+            break;
+        }
+        if (type == ESP_RMAKER_TLV_TYPE_STATUS && l >= 1) {
+            return p[2];
+        }
+        p += 2 + l;
+        rem -= 2 + l;
+    }
+    return 0xFF;
+}
+
+static bool s_deferred_called;
+static esp_rmaker_cmd_ctx_t s_deferred_ctx;
+
+static esp_err_t test_cmd_deferred_handler(const void *in_data, size_t in_len,
+                                           void **out_data, size_t *out_len,
+                                           esp_rmaker_cmd_ctx_t *ctx, void *priv)
+{
+    (void)in_data; (void)in_len; (void)out_data; (void)out_len; (void)priv;
+    s_deferred_called = true;
+    memcpy(&s_deferred_ctx, ctx, sizeof(s_deferred_ctx));
+    return ESP_ERR_NOT_FINISHED;
+}
+
+static esp_err_t cmd_deferred_handler_wrapper(const void *input, size_t input_len, void *priv_data)
+{
+    (void)priv_data;
+    void *output_data = (void *)0xdeadbeef; /* sentinel: must be cleared by dispatcher on defer */
+    size_t output_len = 0xdeadbeef;
+    esp_err_t err = esp_rmaker_cmd_response_handler(input, input_len, &output_data, &output_len);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_NULL(output_data);
+    TEST_ASSERT_EQUAL(0, output_len);
+    return err;
+}
+
+TEST_CASE("ESP RainMaker Deferred Command Response", "[rmaker_cmd_resp]")
+{
+    esp_err_t err;
+    void *build_out = NULL;
+    size_t build_len = 0;
+
+    /* Register a handler that defers. */
+    err = esp_rmaker_cmd_register(TEST_CMD_DEFERRED, ESP_RMAKER_USER_ROLE_PRIMARY_USER,
+                                  test_cmd_deferred_handler, false, NULL);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+
+    /* Dispatch a command to it; the wrapper asserts the dispatcher produced no output. */
+    s_deferred_called = false;
+    memset(&s_deferred_ctx, 0, sizeof(s_deferred_ctx));
+    err = esp_rmaker_cmd_resp_test_send("deferred_req_1", ESP_RMAKER_USER_ROLE_PRIMARY_USER, TEST_CMD_DEFERRED,
+                                        "in", 2, cmd_deferred_handler_wrapper, NULL);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_TRUE(s_deferred_called);
+    TEST_ASSERT_EQUAL(TEST_CMD_DEFERRED, s_deferred_ctx.cmd);
+    TEST_ASSERT_EQUAL_STRING("deferred_req_1", s_deferred_ctx.req_id);
+    TEST_ASSERT_EQUAL(ESP_RMAKER_USER_ROLE_PRIMARY_USER, s_deferred_ctx.user_role);
+
+    /* Simulate async completion: build the response directly via the unified builder. */
+    err = esp_rmaker_cmd_prepare_payload(s_deferred_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_SUCCESS,
+                                         s_deferred_ctx.cmd, "ok", 2, &build_out, &build_len);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_NOT_NULL(build_out);
+    TEST_ASSERT_TRUE(build_len > 0);
+    TEST_ASSERT_EQUAL(ESP_RMAKER_CMD_STATUS_SUCCESS, test_tlv_get_status(build_out, build_len));
+    err = esp_rmaker_cmd_resp_parse_response(build_out, build_len, NULL);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    free(build_out);
+    build_out = NULL;
+
+    /* FAILED status also round-trips. */
+    err = esp_rmaker_cmd_prepare_payload(s_deferred_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_FAILED,
+                                         s_deferred_ctx.cmd, NULL, 0, &build_out, &build_len);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+    TEST_ASSERT_EQUAL(ESP_RMAKER_CMD_STATUS_FAILED, test_tlv_get_status(build_out, build_len));
+    free(build_out);
+
+    err = esp_rmaker_cmd_deregister(TEST_CMD_DEFERRED);
+    TEST_ASSERT_EQUAL(ESP_OK, err);
+}

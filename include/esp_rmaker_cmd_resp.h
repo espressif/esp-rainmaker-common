@@ -100,12 +100,16 @@ typedef enum {
  * If any command data is received from any of the supported transports (which are outside the scope of this core framework),
  * this function should be called to handle it and fill in the response.
  *
+ * If the registered handler defers the response (see esp_rmaker_cmd_handler_t), this returns ESP_OK with
+ * *output set to NULL. The caller should not publish anything in that case; the handler will later build
+ * and publish the response via esp_rmaker_cmd_prepare_payload() and the transport's publish API.
+ *
  * @param[in] input Pointer to input data.
  * @param[in] input_len data len.
- * @param[in] output Pointer to output data which should be set by the handler.
- * @param[out] output_len Length of output generated.
+ * @param[in] output Pointer to output data which should be set by the handler. Will be NULL if the handler deferred the response.
+ * @param[out] output_len Length of output generated. Will be 0 if the handler deferred the response.
  *
- * @return ESP_OK on success.
+ * @return ESP_OK on success (including the deferred case).
  * @return error on failure.
  */
 esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, void **output, size_t *output_len);
@@ -114,15 +118,25 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
  *
  * The handler to be invoked when a given command is received.
  *
+ * For handlers that can complete synchronously, populate *out_data / *out_len and return ESP_OK.
+ *
+ * For handlers that need to defer the response (e.g. the command must be forwarded to another task or device
+ * and the reply is needed to build the response), copy whatever is needed from in_data and ctx (both point to
+ * framework-owned memory that is freed after this returns), queue the work, and return ESP_ERR_NOT_FINISHED.
+ * When the async work completes, call esp_rmaker_cmd_prepare_payload() with the saved req_id and cmd (role=0,
+ * status=STATUS_*, data=response) to assemble the TLV and hand the buffer to the transport's publish API.
+ * Do not set *out_data when returning ESP_ERR_NOT_FINISHED.
+ *
  * @param[in] in_data Pointer to input data.
  * @param[in] in_len data len.
- * @param[in] out_data Pointer to output data which should be set by the handler.
- * @param[out] out_len Length of output generated.
- * @param[in] ctx Command Context.
+ * @param[in] out_data Pointer to output data which should be set by the handler (ignored if returning ESP_ERR_NOT_FINISHED).
+ * @param[out] out_len Length of output generated (ignored if returning ESP_ERR_NOT_FINISHED).
+ * @param[in] ctx Command Context. Copy before returning if the response will be built asynchronously.
  * @param[in] priv Private data, if specified while registering command.
  *
- * @return ESP_OK on success.
- * @return error on failure.
+ * @return ESP_OK on success (response in out_data / out_len).
+ * @return ESP_ERR_NOT_FINISHED to defer the response; call esp_rmaker_cmd_prepare_payload() later.
+ * @return Any other error to fail immediately with CMD_STATUS_FAILED.
  */
 typedef esp_err_t (*esp_rmaker_cmd_handler_t)(const void *in_data, size_t in_len, void **out_data, size_t *out_len, esp_rmaker_cmd_ctx_t *ctx, void *priv);
 
@@ -199,22 +213,46 @@ esp_err_t esp_rmaker_cmd_resp_test_send(const char *req_id, uint8_t role, uint16
  */
 esp_err_t esp_rmaker_cmd_resp_parse_response(const void *response, size_t response_len, void *priv);
 
-/** Prepare TLV payload for command or response
+/** Prepare a TLV payload for a command or a response
  *
- * @param[in] req_id      NULL terminated request id of max 32 characters.
- * @param[in] role        User Role flag.
+ * Single TLV builder used for both outgoing node-initiated commands (pass role, leave status = 0)
+ * and responses to cloud-initiated commands (pass status, leave role = 0). The cloud ignores @p role
+ * on responses and ignores @p status on node-initiated commands, so the same encoder serves both
+ * directions.
+ *
+ * TLV emission rules:
+ * - REQ_ID  : emitted iff @p req_id is non-NULL (a non-NULL empty string emits a zero-length REQ_ID,
+ *             as used by esp_rmaker_cmd_prepare_empty_response()).
+ * - USER_ROLE : emitted iff @p role is non-zero.
+ * - STATUS  : always emitted.
+ * - CMD     : always emitted (including cmd == 0).
+ * - DATA    : emitted iff @p data is non-NULL and @p data_size > 0.
+ *
+ * @param[in] req_id      NULL terminated request id of max 32 characters (NULL to skip REQ_ID).
+ * @param[in] role        User Role flag (0 to skip USER_ROLE).
+ * @param[in] status      ESP_RMAKER_CMD_STATUS_* value for the STATUS TLV (ignored by the cloud
+ *                        on node-initiated commands; pass 0 in that case).
  * @param[in] cmd         Command Identifier.
- * @param[in] data        Pointer to data for the command.
- * @param[in] data_size   Size of the data.
- * @param[out] output     Pointer to output data. This function will allocate memory and set this pointer
- *                        accordingly. This pointer should be freed by the caller after use.
- * @param[out] output_len Length of output generated.
+ * @param[in] data        Pointer to payload data (may be NULL).
+ * @param[in] data_size   Size of @p data.
+ * @param[out] output     Allocated TLV buffer. Caller frees.
+ * @param[out] output_len Length of @p output.
  *
- * @return ESP_OK on success, appropriate error on failure.
+ * @return ESP_OK on success.
+ * @return ESP_ERR_INVALID_ARG if @p output or @p output_len is NULL.
+ * @return ESP_ERR_NO_MEM on allocation failure.
  */
-esp_err_t esp_rmaker_cmd_resp_prepare_response_payload(const char *req_id, uint8_t role, uint16_t cmd,
-                                                       const void *data,size_t data_size,
-                                                       void **output, size_t *output_len);
+esp_err_t esp_rmaker_cmd_prepare_payload(const char *req_id, uint8_t role, uint8_t status,
+                                         uint16_t cmd,
+                                         const void *data, size_t data_size,
+                                         void **output, size_t *output_len);
+
+/** @deprecated Use esp_rmaker_cmd_prepare_payload() instead. Retained as a one-release alias; will be
+ *  removed in a future release. Expands to esp_rmaker_cmd_prepare_payload() with status = 0 (which the
+ *  cloud ignores on node-initiated commands, matching the old behavior).
+ */
+#define esp_rmaker_cmd_resp_prepare_response_payload(req_id, role, cmd, data, data_size, output, output_len) \
+    esp_rmaker_cmd_prepare_payload((req_id), (role), 0, (cmd), (data), (data_size), (output), (output_len))
 
 #ifdef __cplusplus
 }

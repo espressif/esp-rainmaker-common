@@ -185,56 +185,91 @@ const char *esp_rmaker_get_user_role_string(uint8_t user_role)
     }
 }
 
-/* Prepare the response TLV8 which includes
- *
- * Request Id
- * Status
- * Command Id
- * Response Data
- */
-static esp_err_t esp_rmaker_cmd_prepare_response(esp_rmaker_cmd_ctx_t *cmd_ctx, uint8_t status, void *response, size_t response_size, void **output, size_t *output_len)
+/* Forward declaration — defined later in this file, near the other size/TLV helpers. */
+static size_t esp_rmaker_get_tlv_encoded_size(size_t len);
+
+esp_err_t esp_rmaker_cmd_prepare_payload(const char *req_id, uint8_t role, uint8_t status,
+                                         uint16_t cmd,
+                                         const void *data, size_t data_size,
+                                         void **output, size_t *output_len)
 {
-    size_t publish_size = response_size + 100; /* +100 for rest of metadata. TODO: Do exact calculation */
-    void *publish_data = MEM_CALLOC_EXTRAM(1, publish_size);
-    if (!publish_data) {
-        ESP_LOGE(TAG, "Failed to allocate buffer of size %zu for response.", response_size + 100);
+    if (!output || !output_len) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    size_t payload_size = 0;
+    if (req_id) {
+        payload_size += esp_rmaker_get_tlv_encoded_size(strlen(req_id));
+    }
+    if (role != 0) {
+        payload_size += esp_rmaker_get_tlv_encoded_size(sizeof(role));
+    }
+    payload_size += esp_rmaker_get_tlv_encoded_size(sizeof(status));
+    payload_size += esp_rmaker_get_tlv_encoded_size(sizeof(cmd));
+    if (data != NULL && data_size != 0) {
+        payload_size += esp_rmaker_get_tlv_encoded_size(data_size);
+    }
+
+    uint8_t *payload_buffer = MEM_CALLOC_EXTRAM(1, payload_size);
+    if (!payload_buffer) {
+        ESP_LOGE(TAG, "Failed to allocate buffer of size %zu for payload.", payload_size);
         return ESP_ERR_NO_MEM;
     }
+
     esp_rmaker_tlv_data_t tlv_data;
-    esp_rmaker_tlv_data_init(&tlv_data, publish_data, publish_size);
-    if (strlen(cmd_ctx->req_id)) {
-        esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_REQ_ID, strlen(cmd_ctx->req_id), cmd_ctx->req_id);
+    esp_rmaker_tlv_data_init(&tlv_data, payload_buffer, payload_size);
+
+    int encoded_len = 0;
+    if (req_id) {
+        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_REQ_ID, strlen(req_id), req_id);
+        if (encoded_len < 0) {
+            ESP_LOGE(TAG, "Failed to add TLV for Request Id.");
+            goto exit;
+        }
     }
-    esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_STATUS, sizeof(status), &status);
+    if (role != 0) {
+        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_USER_ROLE, sizeof(role), &role);
+        if (encoded_len < 0) {
+            ESP_LOGE(TAG, "Failed to add TLV for User Role.");
+            goto exit;
+        }
+    }
+    encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_STATUS, sizeof(status), &status);
+    if (encoded_len < 0) {
+        ESP_LOGE(TAG, "Failed to add TLV for Status.");
+        goto exit;
+    }
     uint8_t cmd_buf[2];
-    put_u16_le(cmd_buf, cmd_ctx->cmd);
-    esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_CMD, sizeof(cmd_buf), cmd_buf);
-    if (response != NULL && response_size != 0) {
-        esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_DATA, response_size, response);
+    put_u16_le(cmd_buf, cmd);
+    encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_CMD, sizeof(cmd_buf), cmd_buf);
+    if (encoded_len < 0) {
+        ESP_LOGE(TAG, "Failed to add TLV for Command.");
+        goto exit;
     }
-    ESP_LOGD(TAG, "Generated response of size %d for cmd %d", tlv_data.curlen, cmd_ctx->cmd);
-    *output = publish_data;
+    if (data != NULL && data_size != 0) {
+        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_DATA, data_size, data);
+        if (encoded_len < 0) {
+            ESP_LOGE(TAG, "Failed to add TLV for Data.");
+            goto exit;
+        }
+    }
+
+exit:
+    if (encoded_len < 0) {
+        free(payload_buffer);
+        return ESP_FAIL;
+    }
+
+    *output = payload_buffer;
     *output_len = tlv_data.curlen;
+    ESP_LOGD(TAG, "Generated payload of size %d for cmd %d", tlv_data.curlen, cmd);
     return ESP_OK;
 }
 
 esp_err_t esp_rmaker_cmd_prepare_empty_response(void **output, size_t *output_len)
 {
-    size_t publish_size = 6; /* unit16 cmd = 0 (4 bytes in TLV), req_id = empty (2 bytes) */
-    void *publish_data = MEM_CALLOC_EXTRAM(1, publish_size);
-    if (!publish_data) {
-        return ESP_ERR_NO_MEM;
-    }
-    esp_rmaker_tlv_data_t tlv_data;
-    esp_rmaker_tlv_data_init(&tlv_data, publish_data, publish_size);
-    esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_REQ_ID, 0, NULL);
-    uint8_t cmd_buf[2];
-    put_u16_le(cmd_buf, 0);
-    esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_CMD, sizeof(cmd_buf), cmd_buf);
-    *output = publish_data;
-    *output_len = tlv_data.curlen;
-    ESP_LOGD(TAG, "Generated empty response for requesting pending commands.");
-    return ESP_OK;
+    /* Empty req_id TLV + CMD = 0. Used to poll the cloud for pending commands. */
+    return esp_rmaker_cmd_prepare_payload("", 0, 0, 0, NULL, 0, output, output_len);
 }
 
 /* Register a new command with its handler
@@ -326,7 +361,7 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
 
     if (strlen(cmd_ctx.req_id) == 0 || cmd_ctx.user_role == 0 || cmd_ctx.cmd == 0) {
         ESP_LOGE(TAG, "Request id, user role or command id cannot be 0");
-        return esp_rmaker_cmd_prepare_response(&cmd_ctx, ESP_RMAKER_CMD_STATUS_CMD_INVALID, NULL, 0, output, output_len);
+        return esp_rmaker_cmd_prepare_payload(cmd_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_CMD_INVALID, cmd_ctx.cmd, NULL, 0, output, output_len);
     }
     ESP_LOGI(TAG, "Got Req. Id: %s, Role = %s, Sub-Role = %d, Cmd = %d, Timestamp = %" PRIu32, cmd_ctx.req_id,
              esp_rmaker_get_user_role_string(cmd_ctx.user_role),
@@ -354,10 +389,15 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
             void *response = NULL;
             size_t response_size = 0;
             esp_err_t err = cmd_info->handler(data, data_size, &response, &response_size, &cmd_ctx, cmd_info->priv);
-            if (err == ESP_OK) {
-                err = esp_rmaker_cmd_prepare_response(&cmd_ctx, ESP_RMAKER_CMD_STATUS_SUCCESS, response, response_size, output, output_len);
+            if (err == ESP_ERR_NOT_FINISHED) {
+                /* Handler deferred the response. It will call esp_rmaker_cmd_prepare_payload() later. */
+                *output = NULL;
+                *output_len = 0;
+                err = ESP_OK;
+            } else if (err == ESP_OK) {
+                err = esp_rmaker_cmd_prepare_payload(cmd_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_SUCCESS, cmd_ctx.cmd, response, response_size, output, output_len);
             } else {
-                err = esp_rmaker_cmd_prepare_response(&cmd_ctx, ESP_RMAKER_CMD_STATUS_FAILED, NULL, 0, output, output_len);
+                err = esp_rmaker_cmd_prepare_payload(cmd_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_FAILED, cmd_ctx.cmd, NULL, 0, output, output_len);
             }
             if (response && cmd_info->free_on_return) {
                 ESP_LOGI(TAG, "Freeing response buffer.");
@@ -368,10 +408,10 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
             }
             return err;
         } else {
-            return esp_rmaker_cmd_prepare_response(&cmd_ctx, ESP_RMAKER_CMD_STATUS_AUTH_FAIL, NULL, 0, output, output_len);
+            return esp_rmaker_cmd_prepare_payload(cmd_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_AUTH_FAIL, cmd_ctx.cmd, NULL, 0, output, output_len);
         }
     }
-    return esp_rmaker_cmd_prepare_response(&cmd_ctx, ESP_RMAKER_CMD_STATUS_NOT_FOUND, NULL, 0, output, output_len);
+    return esp_rmaker_cmd_prepare_payload(cmd_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_NOT_FOUND, cmd_ctx.cmd, NULL, 0, output, output_len);
 }
 
 /****************************************** Testing Functions ******************************************/
@@ -434,83 +474,6 @@ static size_t esp_rmaker_get_tlv_encoded_size(size_t len)
     size_t TL_size = (2 * required_packets);
     size_t V_size = ((required_packets - 1) * 255) + (len % 255);
     return (TL_size + V_size);
-}
-
-esp_err_t esp_rmaker_cmd_resp_prepare_response_payload(const char *req_id, uint8_t role, uint16_t cmd_id,
-                                                        const void *data, size_t data_size,
-                                                        void **output, size_t *output_len)
-{
-    if (!output_len) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    esp_rmaker_tlv_data_t tlv_data;
-    size_t payload_size = 0;
-
-    if (req_id) {
-        payload_size += esp_rmaker_get_tlv_encoded_size(strlen(req_id));
-    }
-    if (role != 0) {
-        payload_size += esp_rmaker_get_tlv_encoded_size(sizeof(role));
-    }
-    payload_size += esp_rmaker_get_tlv_encoded_size(sizeof(cmd_id));
-    if (data != NULL && data_size != 0) {
-        payload_size += esp_rmaker_get_tlv_encoded_size(data_size);
-    }
-
-    ESP_LOGD(TAG, "Calculated payload size: %zu", payload_size);
-
-    uint8_t *payload_buffer = MEM_CALLOC_EXTRAM(1, payload_size);
-    if (!payload_buffer) {
-        return ESP_ERR_NO_MEM;
-    }
-
-    esp_rmaker_tlv_data_init(&tlv_data, payload_buffer, payload_size);
-
-    // tracks the length of the encoded TLV data
-    int encoded_len = -1;
-    if (req_id) {
-        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_REQ_ID, strlen(req_id), req_id);
-        if (encoded_len < 0) {
-            ESP_LOGE(TAG, "Failed to add TLV for Request Id.");
-            goto exit;
-        }
-    }
-
-    if (role != 0) {
-        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_USER_ROLE, sizeof(role), &role);
-        if (encoded_len < 0) {
-            ESP_LOGE(TAG, "Failed to add TLV for User Role.");
-            goto exit;
-        }
-    }
-
-    uint8_t cmd_buf[2];
-    put_u16_le(cmd_buf, cmd_id);
-    encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_CMD, sizeof(cmd_buf), cmd_buf);
-    if (encoded_len < 0) {
-        ESP_LOGE(TAG, "Failed to add TLV for Command.");
-        goto exit;
-    }
-
-    if (data != NULL && data_size != 0) {
-        encoded_len = esp_rmaker_add_tlv(&tlv_data, ESP_RMAKER_TLV_TYPE_DATA, data_size, data);
-        if (encoded_len < 0) {
-            ESP_LOGE(TAG, "Failed to add TLV for Data.");
-            goto exit;
-        }
-    }
-
-exit:
-    if (encoded_len < 0) {
-        free(payload_buffer);
-        return ESP_FAIL;
-    }
-
-    *output = payload_buffer;
-    *output_len = tlv_data.curlen;
-    ESP_LOGD(TAG, "Actual payload length: %d", tlv_data.curlen);
-    return ESP_OK;
 }
 
 /* Parse response */
