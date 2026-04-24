@@ -389,7 +389,12 @@ esp_err_t esp_rmaker_cmd_response_handler(const void *input, size_t input_len, v
             void *response = NULL;
             size_t response_size = 0;
             esp_err_t err = cmd_info->handler(data, data_size, &response, &response_size, &cmd_ctx, cmd_info->priv);
-            if (err == ESP_OK) {
+            if (err == ESP_ERR_NOT_FINISHED) {
+                /* Handler deferred the response. It will call esp_rmaker_cmd_prepare_payload() later. */
+                *output = NULL;
+                *output_len = 0;
+                err = ESP_OK;
+            } else if (err == ESP_OK) {
                 err = esp_rmaker_cmd_prepare_payload(cmd_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_SUCCESS, cmd_ctx.cmd, response, response_size, output, output_len);
             } else {
                 err = esp_rmaker_cmd_prepare_payload(cmd_ctx.req_id, 0, ESP_RMAKER_CMD_STATUS_FAILED, cmd_ctx.cmd, NULL, 0, output, output_len);
