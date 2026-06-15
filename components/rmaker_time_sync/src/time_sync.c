@@ -1,20 +1,25 @@
 /*
- * SPDX-FileCopyrightText: 2021-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <inttypes.h>
 #include <esp_log.h>
 #include <nvs.h>
-#include <esp_rmaker_utils.h>
+#include <esp_rmaker_time_sync.h>
 #include <esp_rmaker_common_events.h>
 #include <esp_idf_version.h>
 
 #ifndef CONFIG_IDF_TARGET_LINUX
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+#include <esp_netif_sntp.h>
+#else
 #include <esp_sntp.h>
+#endif
 #endif
 
 static const char *TAG = "esp_rmaker_time";
@@ -75,7 +80,7 @@ static char *__esp_rmaker_time_get_nvs(const char *key)
     }
     size_t len = 0;
     if ((err = nvs_get_blob(handle, key, NULL, &len)) == ESP_OK) {
-        val = MEM_CALLOC_EXTRAM(1, len + 1); /* +1 for NULL termination */
+        val = calloc(1, len + 1); /* +1 for NULL termination; small (TZ string), called rarely */
         if (val) {
             nvs_get_blob(handle, key, val, &len);
         }
@@ -197,14 +202,29 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
         sntp_server_name = config->sntp_server_name;
     }
     ESP_LOGI(TAG, "Initializing SNTP. Using the SNTP server: %s", sntp_server_name);
+
+    void (*sync_notification_cb)(struct timeval *tv);
+    if (config && config->sync_time_cb) {
+        sync_notification_cb = config->sync_time_cb;
+    } else {
+        sync_notification_cb = esp_rmaker_time_sync_cb;
+    }
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
+    esp_sntp_config_t sntp_config = ESP_NETIF_SNTP_DEFAULT_CONFIG(sntp_server_name);
+    sntp_config.start = false;                       // start SNTP service explicitly (after connecting)
+    sntp_config.server_from_dhcp = true;             // accept NTP offers from DHCP server, if any (need to enable *before* connecting)
+    sntp_config.renew_servers_after_new_IP = true;   // let esp-netif update configured SNTP server(s) after receiving DHCP lease
+    sntp_config.index_of_first_server = 1;           // updates from server num 1, leaving server 0 (from DHCP) intact
+    sntp_config.sync_cb = sync_notification_cb; // only if we need the notification function
+    esp_netif_sntp_init(&sntp_config);
+#else
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, sntp_server_name);
     esp_sntp_init();
-    if (config && config->sync_time_cb) {
-        sntp_set_time_sync_notification_cb(config->sync_time_cb);
-    } else {
-        sntp_set_time_sync_notification_cb(esp_rmaker_time_sync_cb);
-    }
+    sntp_set_time_sync_notification_cb(sync_notification_cb);
+#endif
+
     esp_rmaker_timezone_enable();
     init_done = true;
     return ESP_OK;

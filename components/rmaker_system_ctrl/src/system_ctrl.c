@@ -9,17 +9,16 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/timers.h>
 #include <esp_system.h>
+#include <esp_event.h>
 #ifndef CONFIG_IDF_TARGET_LINUX
 #include <esp_wifi.h>
 #endif
 #include <nvs_flash.h>
+#include <esp_rmaker_common_events.h>
 
 #if defined(CONFIG_ESP_WIFI_ENABLED) || defined(CONFIG_ESP32_WIFI_ENABLED) || defined(CONFIG_ESP_WIFI_REMOTE_ENABLED)
 #define RMAKER_WIFI_ENABLED
 #endif
-#include <esp_rmaker_common_events.h>
-
-ESP_EVENT_DEFINE_BASE(RMAKER_COMMON_EVENT);
 
 static TimerHandle_t reboot_timer;
 static TimerHandle_t reset_timer;

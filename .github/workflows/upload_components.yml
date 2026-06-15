@@ -14,8 +14,15 @@ jobs:
           submodules: "recursive"
 
       - name: Upload components to component registry
-        uses: espressif/upload-components-ci-action@v1
+        uses: espressif/upload-components-ci-action@v2
         with:
+          components: |
+            "."
+            components/rmaker_work_queue
+            components/rmaker_cmd_resp
+            components/rmaker_console
+            components/rmaker_common_events
+            components/rmaker_system_ctrl
+            components/rmaker_time_sync
           namespace: "espressif"
-          name: "rmaker_common"
           api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}

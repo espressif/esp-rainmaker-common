@@ -1,0 +1,20 @@
+repos:
+# Check EOF newline
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: end-of-file-fixer
+# Insert license headers
+- repo: https://github.com/Lucas-C/pre-commit-hooks
+  rev: v1.5.6
+  hooks:
+  - id: insert-license  # Insert a short license disclaimer as a header comment in source
+    name: Insert license header (.c,.cpp,.h)
+    files: \.(c|cpp|h)$
+    args:
+    - --license-filepath
+    - .pre-commit/license_header.txt
+    - --comment-style
+    - /*| *| */
+    - --use-current-year
+    - --fuzzy-match-generates-todo # Add TODOs for fuzzy matches

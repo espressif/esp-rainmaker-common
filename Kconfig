@@ -97,19 +97,6 @@ menu "ESP RainMaker Common"
             MQTT Keep Alive Interval. Note that it can take upto 1.5x of keep alive interval for a device
             to be reported by offline by the MQTT Broker. Change this only if required.
 
-    config ESP_RMAKER_WORK_QUEUE_TASK_STACK
-        int "ESP RainMaker Work Queue Task stack"
-        default 5120
-        help
-            Stack size for the ESP RainMaker Work Queue Task.
-
-    config ESP_RMAKER_WORK_QUEUE_TASK_PRIORITY
-        int "ESP RainMaker Work Queue Task priority"
-        default 5
-        help
-            Priority for the ESP RainMaker Work Queue Task. Not recommended to be changed
-            unless you really need it.
-
     config ESP_RMAKER_FACTORY_PARTITION_NAME
         string "ESP RainMaker Factory Partition Name"
         default "fctry"
@@ -142,42 +129,4 @@ menu "ESP RainMaker Common"
         help
             Label of the partition of subtype "nvs_keys" used for encrypting/decrypting Rainmaker factory partition.
 
-    config ESP_RMAKER_DEF_TIMEZONE
-        string "Default Timezone"
-        default "Asia/Shanghai"
-        help
-            Default Timezone to use. Eg. "Asia/Shanghai", "America/Los_Angeles".
-            Check documentation for complete list of valid values. This value
-            will be used only if no timezone is set using the C APIs.
-
-    config ESP_RMAKER_SNTP_SERVER_NAME
-        string "ESP RainMaker SNTP Server Name"
-        default "pool.ntp.org"
-        help
-            Default SNTP Server which is used for time synchronization.
-
-    config ESP_RMAKER_MAX_COMMANDS
-        int "Maximum commands supported for command-response"
-        default 10
-        help
-            Maximum number of commands supported by the command-response framework
-
-    config ESP_RMAKER_CONSOLE_ENABLED
-        bool "Enable RMAKER common console"
-        default y
-        help
-            Enable RainMaker common console.
-            If the application has its own console, this can be disabled.
-
-    config ESP_RMAKER_CONSOLE_TASK_STACK
-        int "Console task stack"
-        default 4096
-        help
-            Stack size for the console task.
-
-    config ESP_RMAKER_CONSOLE_TASK_PRIORITY
-        int "Console task priority"
-        default 5
-        help
-            Priority for the console task.
 endmenu

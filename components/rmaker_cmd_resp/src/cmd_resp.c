@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,8 +8,17 @@
 #include <string.h>
 #include <inttypes.h>
 #include <esp_log.h>
+#include <esp_heap_caps.h>
 #include <esp_rmaker_cmd_resp.h>
-#include <esp_rmaker_utils.h>
+
+/* Payload buffers here can be large and allocated repeatedly, so prefer external RAM (SPIRAM)
+ * when available, falling back to internal RAM. Only MEM_CALLOC_EXTRAM is used in this component. */
+#if ((CONFIG_SPIRAM || CONFIG_SPIRAM_SUPPORT) && \
+        (CONFIG_SPIRAM_USE_CAPS_ALLOC || CONFIG_SPIRAM_USE_MALLOC))
+#define MEM_CALLOC_EXTRAM(num, size)   heap_caps_calloc_prefer(num, size, 2, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL)
+#else
+#define MEM_CALLOC_EXTRAM(num, size)   calloc(num, size)
+#endif
 
 #define RMAKER_MAX_CMD  CONFIG_ESP_RMAKER_MAX_COMMANDS
 
