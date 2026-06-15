@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -19,15 +19,23 @@
 #ifndef CONFIG_IDF_TARGET_LINUX
 #include <lwip/sockets.h>
 #endif
-#include <esp_system.h>
 #include <argtable3/argtable3.h>
-#include <esp_heap_caps.h>
 #ifdef CONFIG_HEAP_TRACING
 #include <esp_heap_trace.h>
 #endif
 
-#include <esp_rmaker_utils.h>
+#include <esp_heap_caps.h>
+#include "esp_rmaker_system_ctrl.h"
+#include "esp_rmaker_time_sync.h"
 
+/* Buffers here can be large (task list, 2 KB dump), so prefer external RAM (SPIRAM) when
+ * available, falling back to internal RAM. Only MEM_CALLOC_EXTRAM is used in this component. */
+#if ((CONFIG_SPIRAM || CONFIG_SPIRAM_SUPPORT) && \
+        (CONFIG_SPIRAM_USE_CAPS_ALLOC || CONFIG_SPIRAM_USE_MALLOC))
+#define MEM_CALLOC_EXTRAM(num, size)   heap_caps_calloc_prefer(num, size, 2, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL)
+#else
+#define MEM_CALLOC_EXTRAM(num, size)   calloc(num, size)
+#endif
 
 static const char *TAG = "rmaker_common_cmds";
 
@@ -35,7 +43,7 @@ static int reboot_cli_handler(int argc, char *argv[])
 {
     /* Just to go to the next line */
     printf("\n");
-    esp_restart();
+    esp_rmaker_reboot(0);
     return 0;
 }
 

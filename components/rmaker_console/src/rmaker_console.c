@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022-2025 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -89,12 +89,21 @@ static void scli_task(void *arg)
             }
             if (event.type == UART_DATA) {
                 while (uart_read_bytes(uart_num, (uint8_t *) &linebuf[i], 1, 0)) {
-                    if (linebuf[i] == '\r') {
+                    char c = linebuf[i];
+                    if (c == '\r') {
                         uart_write_bytes(uart_num, "\r\n", 2);
                     } else {
-                        uart_write_bytes(uart_num, (char *) &linebuf[i], 1);
+                        uart_write_bytes(uart_num, &c, 1);
                     }
-                    i++;
+
+                    /* Handle backspace */
+                    if (c == '\b') {
+                        if (i > 0) {
+                            i--;
+                        }
+                    } else {
+                        i++;
+                    }
                 }
             }
         } while ((i < 255) && linebuf[i-1] != '\r');
@@ -106,7 +115,7 @@ static void scli_task(void *arg)
         /* Just to go to the next line */
         printf("\n");
         ret = esp_console_run((char *) linebuf, &cmd_ret);
-        if (cmd_ret != 0) {
+        if (ret == ESP_OK && cmd_ret != 0) {
             printf("%s: Console command failed with error: %d\n", TAG, cmd_ret);
             cmd_ret = 0;
         }

@@ -1,5 +1,5 @@
 name: rmaker_common
-version: "1.8.2"
+version: "1.8.3"
 description: ESP RainMaker firmware agent Common component
 url: https://github.com/espressif/esp-rainmaker-common
 dependencies:
@@ -8,3 +8,41 @@ dependencies:
     version: "*"
     rules:
       - if: idf_version >=6.0.0
+
+  ### Internal components ###
+
+  # Command Response
+  espressif/rmaker_cmd_resp:
+    version: "^1.0.0"
+    require: public
+    override_path: ./components/rmaker_cmd_resp
+
+  # Console
+  espressif/rmaker_console:
+    version: "^1.0.0"
+    require: public
+    override_path: ./components/rmaker_console
+
+  # Events
+  espressif/rmaker_common_events:
+    version: "^1.0.0"
+    require: public
+    override_path: ./components/rmaker_common_events
+
+  # System Control
+  espressif/rmaker_system_ctrl:
+    version: "^1.0.0"
+    require: public
+    override_path: ./components/rmaker_system_ctrl
+
+  # Time Sync
+  espressif/rmaker_time_sync:
+    version: "^1.0.0"
+    require: public
+    override_path: ./components/rmaker_time_sync
+
+  # Work Queue
+  espressif/rmaker_work_queue:
+    version: "^1.0.0"
+    require: public
+    override_path: ./components/rmaker_work_queue
