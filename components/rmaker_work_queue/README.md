@@ -1,5 +1,7 @@
 # rmaker_work_queue
 
+[![Component Registry](https://components.espressif.com/components/espressif/rmaker_work_queue/badge.svg)](https://components.espressif.com/components/espressif/rmaker_work_queue)
+
 Dedicated-thread work queue for ESP RainMaker: queue callbacks to run sequentially on a single worker task.
 
 ## Overview

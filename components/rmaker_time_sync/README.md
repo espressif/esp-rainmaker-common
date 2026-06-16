@@ -1,5 +1,7 @@
 # rmaker_time_sync
 
+[![Component Registry](https://components.espressif.com/components/espressif/rmaker_time_sync/badge.svg)](https://components.espressif.com/components/espressif/rmaker_time_sync)
+
 SNTP-based time synchronization for RainMaker firmware, with optional callbacks when time is updated and helpers for timezone/POSIX timezone strings where applicable.
 
 ## Overview

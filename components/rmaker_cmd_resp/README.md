@@ -1,5 +1,7 @@
 # rmaker_cmd_resp
 
+[![Component Registry](https://components.espressif.com/components/espressif/rmaker_cmd_resp/badge.svg)](https://components.espressif.com/components/espressif/rmaker_cmd_resp)
+
 Encode and decode RainMaker command/response payloads using a TLV-style binary format (request id, user role, status, timestamp, command, data).
 
 ## Overview

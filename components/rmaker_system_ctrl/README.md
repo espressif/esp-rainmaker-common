@@ -1,5 +1,7 @@
 # rmaker_system_ctrl
 
+[![Component Registry](https://components.espressif.com/components/espressif/rmaker_system_ctrl/badge.svg)](https://components.espressif.com/components/espressif/rmaker_system_ctrl)
+
 High-level device control APIs for RainMaker: delayed reboot, Wi-Fi credential reset, factory reset, and related operations that emit common RainMaker events.
 
 ## Overview
