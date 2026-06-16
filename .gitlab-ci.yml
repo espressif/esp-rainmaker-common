@@ -1,4 +1,5 @@
 stages:
+  - validate
   - build
   - unittest
 
@@ -14,6 +15,33 @@ before_script:
   - base64 --decode --ignore-garbage ~/.ssh/id_rsa_base64 > ~/.ssh/id_rsa
   - chmod 600 ~/.ssh/id_rsa
   - echo -e "Host gitlab.espressif.cn\n\tStrictHostKeyChecking no\n" >> ~/.ssh/config
+
+validate_components:
+  stage: validate
+  image: $DOCKER_IMAGE
+  tags:
+    - build
+  script:
+    # Dry-run upload (server-side validation, no token needed) for every
+    # component published to the registry: the 6 sub-components + the root.
+    - for dir in components/*/; do
+    -   name=$(basename "$dir")
+    -   echo "==> Validating espressif/${name}"
+    -   compote component upload --dry-run --namespace espressif --name "$name" --project-dir "$dir"
+    - done
+    - echo "==> Validating espressif/rmaker_common (root)"
+    - compote component upload --dry-run --namespace espressif --name rmaker_common --project-dir .
+
+pre_commit:
+  stage: validate
+  image: python:3.12-slim
+  tags:
+    - build
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends git
+    - pip3 install pre-commit
+  script:
+    - pre-commit run --all-files --hook-stage manual --show-diff-on-failure
 
 .build_template:
   stage: build
