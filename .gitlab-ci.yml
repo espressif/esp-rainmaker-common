@@ -22,15 +22,11 @@ validate_components:
   tags:
     - build
   script:
-    # Dry-run upload (server-side validation, no token needed) for every
-    # component published to the registry: the 6 sub-components + the root.
-    - for dir in components/*/; do
-    -   name=$(basename "$dir")
-    -   echo "==> Validating espressif/${name}"
-    -   compote component upload --dry-run --namespace espressif --name "$name" --project-dir "$dir"
-    - done
-    - echo "==> Validating espressif/rmaker_common (root)"
-    - compote component upload --dry-run --namespace espressif --name rmaker_common --project-dir .
+    # Parse .github/workflows/upload_components.yml and dry-run validate every
+    # component it declares, using the same name resolution as the upload
+    # action. Catches a malformed `components:` list (e.g. a root component
+    # missing its name) here instead of on push. No token needed for dry-run.
+    - python3 ci/validate_components.py
 
 pre_commit:
   stage: validate
