@@ -17,7 +17,7 @@ jobs:
         uses: espressif/upload-components-ci-action@v2
         with:
           components: |
-            "."
+            .
             components/rmaker_work_queue
             components/rmaker_cmd_resp
             components/rmaker_console
