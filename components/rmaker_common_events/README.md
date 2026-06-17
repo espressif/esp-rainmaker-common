@@ -1,5 +1,7 @@
 # rmaker_common_events
 
+[![Component Registry](https://components.espressif.com/components/espressif/rmaker_common_events/badge.svg)](https://components.espressif.com/components/espressif/rmaker_common_events)
+
 Defines the shared ESP RainMaker event base (`RMAKER_COMMON_EVENT`) and the common event IDs that the other RainMaker components post on.
 
 ## Overview

@@ -1,5 +1,7 @@
 # rmaker_console
 
+[![Component Registry](https://components.espressif.com/components/espressif/rmaker_console/badge.svg)](https://components.espressif.com/components/espressif/rmaker_console)
+
 Serial console integration for ESP RainMaker: initializes the console and registers common RainMaker CLI commands.
 
 ## Overview

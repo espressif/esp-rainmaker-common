@@ -81,10 +81,28 @@ def main():
                 "compote", "component", "upload", "--dry-run",
                 "--namespace", namespace, "--name", name,
                 "--project-dir", str(full),
-            ]
+            ],
+            capture_output=True,
+            text=True,
         )
+        # Echo compote's output so CI logs remain self-explanatory.
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
         if result.returncode != 0:
-            failures.append(f"{namespace}/{name} ({path}): dry-run failed")
+            # A version that is already published is not a validation error:
+            # the component packed and validated fine, it just exists already.
+            # The real upload-components-ci-action skips such versions rather
+            # than failing, so mirror that here instead of breaking every MR
+            # that doesn't bump a version.
+            combined = f"{result.stdout}\n{result.stderr}"
+            if "already on the registry" in combined:
+                print(
+                    f"    (version already published; skipping like the "
+                    f"upload action)",
+                    flush=True,
+                )
+            else:
+                failures.append(f"{namespace}/{name} ({path}): dry-run failed")
 
     if failures:
         print("\nComponent validation FAILED:")
