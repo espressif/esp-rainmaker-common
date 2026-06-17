@@ -28,6 +28,20 @@ validate_components:
     # missing its name) here instead of on push. No token needed for dry-run.
     - python3 ci/validate_components.py
 
+version_bump_check:
+  stage: validate
+  image: $DOCKER_IMAGE
+  tags:
+    - build
+  variables:
+    # Need full history to find the merge base with the target branch.
+    GIT_DEPTH: 0
+  script:
+    # Fail if a sub-component's files changed across this MR without a
+    # version bump. Add "[skip-version-bump]" to a commit message to mark
+    # an intentional change (e.g. docs/badges) that should not be released.
+    - python3 ci/check_version_bump.py
+
 pre_commit:
   stage: validate
   image: python:3.12-slim
