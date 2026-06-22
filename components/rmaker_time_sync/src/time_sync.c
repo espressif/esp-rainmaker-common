@@ -213,7 +213,9 @@ esp_err_t esp_rmaker_time_sync_init(esp_rmaker_time_config_t *config)
 #if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
     esp_sntp_config_t sntp_config = ESP_NETIF_SNTP_DEFAULT_CONFIG(sntp_server_name);
     sntp_config.start = false;                       // start SNTP service explicitly (after connecting)
+#ifdef CONFIG_LWIP_DHCP_GET_NTP_SRV
     sntp_config.server_from_dhcp = true;             // accept NTP offers from DHCP server, if any (need to enable *before* connecting)
+#endif
     sntp_config.renew_servers_after_new_IP = true;   // let esp-netif update configured SNTP server(s) after receiving DHCP lease
     sntp_config.index_of_first_server = 1;           // updates from server num 1, leaving server 0 (from DHCP) intact
     sntp_config.sync_cb = sync_notification_cb; // only if we need the notification function
