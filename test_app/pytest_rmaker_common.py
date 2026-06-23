@@ -38,6 +38,11 @@ def test_work_queue(dut: IdfDut):
     run_unity_group_fast(dut, "work_queue")
 
 
+def test_rmaker_console(dut: IdfDut):
+    """Test ESP RainMaker console line-editing input filter"""
+    run_unity_group_fast(dut, "rmaker_console")
+
+
 def test_all_rmaker_common(dut: IdfDut):
     """Test all ESP RainMaker common component functionality"""
     # Wait for Unity menu prompt
