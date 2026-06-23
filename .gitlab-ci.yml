@@ -81,7 +81,7 @@ pre_commit:
   artifacts:
     paths:
       - merged_fw_bins
-    expire_in: 2 hours
+    expire_in: 24 hours
 
 .test_template:
   stage: unittest
