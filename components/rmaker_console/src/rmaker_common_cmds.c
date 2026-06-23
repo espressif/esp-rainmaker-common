@@ -13,7 +13,6 @@
 #include <freertos/task.h>
 
 #include <esp_timer.h>
-#include <nvs_flash.h>
 #include <esp_log.h>
 #include <esp_console.h>
 #ifndef CONFIG_IDF_TARGET_LINUX

@@ -19,4 +19,23 @@ menu "ESP RainMaker Console"
         help
             Priority for the console task.
 
+    config ESP_RMAKER_CONSOLE_USE_REPL
+        bool "Use esp_console REPL" if !IDF_TARGET_LINUX
+        depends on ESP_RMAKER_CONSOLE_ENABLED
+        default y if IDF_TARGET_LINUX
+        default n
+        help
+            Use the esp_console REPL helper (linenoise line editing and history)
+            instead of the legacy UART console task.
+            The REPL is always used on the Linux target.
+
+    config ESP_RMAKER_CONSOLE_MAX_HISTORY_LEN
+        int "Console command history length"
+        depends on ESP_RMAKER_CONSOLE_USE_REPL
+        range 1 10
+        default 5
+        help
+            Maximum number of commands kept in the console history (linenoise).
+            Higher values use more RAM. Minimum is 1 (the REPL helper rejects 0).
+
 endmenu

@@ -17,11 +17,22 @@
 static const char *TAG = "rmaker_console";
 
 #if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
-#ifdef CONFIG_IDF_TARGET_LINUX
-static esp_err_t scli_init()
+#if CONFIG_ESP_RMAKER_CONSOLE_USE_REPL
+static esp_err_t scli_init(void)
 {
+    static bool cli_started = false;
+    if (cli_started) {
+        return ESP_OK;
+    }
+
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
+    repl_config.prompt = ">> ";
+    repl_config.task_stack_size = CONFIG_ESP_RMAKER_CONSOLE_TASK_STACK;
+    repl_config.task_priority = CONFIG_ESP_RMAKER_CONSOLE_TASK_PRIORITY;
+    /* Command history length is Kconfig-tunable (min 1; the helper rejects 0
+     * since linenoiseHistorySetMaxLen returns 0 for len < 1). */
+    repl_config.max_history_len = CONFIG_ESP_RMAKER_CONSOLE_MAX_HISTORY_LEN;
 
 #if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
     esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
@@ -40,9 +51,10 @@ static esp_err_t scli_init()
 #endif
 
     ESP_ERROR_CHECK(esp_console_start_repl(repl));
+    cli_started = true;
     return ESP_OK;
 }
-#else /* CONFIG_IDF_TARGET_LINUX */
+#else /* CONFIG_ESP_RMAKER_CONSOLE_USE_REPL */
 #include <driver/uart.h>
 static int stop;
 
@@ -167,7 +179,7 @@ static esp_err_t scli_init(void)
     cli_started = true;
     return ESP_OK;
 }
-#endif /* CONFIG_IDF_TARGET_LINUX */
+#endif /* CONFIG_ESP_RMAKER_CONSOLE_USE_REPL */
 #endif /* CONFIG_ESP_RMAKER_CONSOLE_ENABLED */
 
 esp_err_t esp_rmaker_common_console_init()

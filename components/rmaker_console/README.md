@@ -12,6 +12,11 @@ Call `esp_rmaker_common_console_init()` for a one-shot setup, or initialize the 
 
 - ESP-IDF v5.1 or newer
 
+## Configuration
+
+- `CONFIG_ESP_RMAKER_CONSOLE_USE_REPL` uses the `esp_console` REPL, with line editing and command history. It adds about 14 KB of flash. It is always on for the Linux target and off by default on chip targets, which use a smaller UART console task.
+- `CONFIG_ESP_RMAKER_CONSOLE_MAX_HISTORY_LEN` sets the number of commands in the REPL history.
+
 ## Dependencies
 
 - `espressif/rmaker_system_ctrl`
