@@ -21,11 +21,14 @@ validate_components:
   image: $DOCKER_IMAGE
   tags:
     - build
+  variables:
+    # Need full history to find the merge base with the target branch.
+    GIT_DEPTH: 0
   script:
-    # Parse .github/workflows/upload_components.yml and dry-run validate every
-    # component it declares, using the same name resolution as the upload
-    # action. Catches a malformed `components:` list (e.g. a root component
-    # missing its name) here instead of on push. No token needed for dry-run.
+    # Parse .github/workflows/upload_components.yml and dry-run validate the
+    # components this push would publish, using the same name resolution as
+    # the upload action. Catches a malformed `components:` list (e.g. a root
+    # component missing its name) here instead of on push. No token needed.
     - python3 ci/validate_components.py
 
 version_bump_check:

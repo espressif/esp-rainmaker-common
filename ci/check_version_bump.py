@@ -2,11 +2,12 @@
 """Fail if a component's packaged files changed without a version bump.
 
 For every component declared in .github/workflows/upload_components.yml
-(except the repo root, which packages the whole tree) this compares the
-files under the component against the target branch. If any changed but
-the `version:` in its idf_component.yml was not bumped, a new version
-would never reach the registry (the action skips already-published
-versions) -- so fail CI here, loudly, instead of shipping a silent no-op.
+this compares the files under the component against the target branch. If
+any changed but the `version:` in its idf_component.yml was not bumped, a
+new version would never reach the registry (the action skips
+already-published versions) -- so fail CI here, loudly, instead of
+shipping a silent no-op. The root component is scoped to its own files:
+the sub-component directories and repo infrastructure are excluded.
 
 Opt-out: include the token "[skip-version-bump]" in any commit message in
 the merge request's range to mark the change as intentional (e.g. a docs
@@ -17,33 +18,22 @@ The component list and name resolution are shared with
 validate_components.py so both jobs agree on what a "component" is.
 """
 import os
-import re
-import subprocess
 import sys
 from pathlib import Path
 
-from validate_components import find_action_step, parse_components
+from validate_components import (
+    find_action_step,
+    git,
+    parse_components,
+    read_version,
+    root_scope,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github/workflows/upload_components.yml"
 # Branch to compare against; origin/master for the default branch pipelines.
 BASE = os.environ.get("VERSION_BUMP_BASE", "origin/master")
 SKIP_TOKEN = "[skip-version-bump]"
-
-
-def git(*args):
-    """Run a git command from the repo root, returning its stdout (str)."""
-    return subprocess.run(
-        ["git", *args], capture_output=True, text=True, cwd=ROOT
-    )
-
-
-def read_version(text):
-    for line in text.splitlines():
-        m = re.match(r"""\s*version\s*:\s*["']?([^"'#\s]+)""", line)
-        if m:
-            return m.group(1)
-    return None
 
 
 def main():
@@ -69,12 +59,15 @@ def main():
     violations = []
     for name, path, _entry in components:
         full = (ROOT / path).resolve()
-        if full == ROOT:
-            continue  # root packages the whole tree; not a per-change guard
-        changed = git("diff", "--name-only", f"{base}..HEAD", "--", path).stdout.strip()
+        is_root = full == ROOT
+        scope = root_scope(components) if is_root else [path]
+        changed = git(
+            "diff", "--name-only", f"{base}..HEAD", "--", *scope
+        ).stdout.strip()
         if not changed:
             continue
-        base_manifest = git("show", f"{base}:{path}/idf_component.yml").stdout
+        rel = "idf_component.yml" if is_root else f"{path}/idf_component.yml"
+        base_manifest = git("show", f"{base}:{rel}").stdout
         if not base_manifest.strip():
             continue  # new component on this branch: first publish, no bump needed
         base_ver = read_version(base_manifest)
