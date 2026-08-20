@@ -1,0 +1,76 @@
+menu "RainMaker AWS SigV4 Signing"
+
+    config ESP_RMAKER_AWS_SIGN_DISABLE_DEFAULT_PORT
+        bool "Do not build the default ESP-IDF port"
+        default n
+        help
+            Drops src/esp_rmaker_aws_sign_default.c and port/esp/* from the build, along with
+            esp_rmaker_aws_sign_port_install_default(). Only esp_rmaker_aws_sign_port_install()
+            remains, so the application must supply its own port.
+
+            Leaving this disabled still lets the linker strip the default port from any
+            application that never calls esp_rmaker_aws_sign_port_install_default() - this
+            option only makes the guarantee a compile-time one instead of a link-time one.
+
+    config ESP_RMAKER_AWS_SIGN_MIN_VALID_EPOCH
+        int "Minimum plausible wall-clock epoch (seconds)"
+        default 1735689600
+        help
+            Fallback trustworthy-clock threshold, used when the installed port supplies no
+            time.is_synced(). The default is 2025-01-01T00:00:00Z. A clock at or below this
+            is treated as unsynchronised and AWS calls fail with ESP_ERR_INVALID_STATE
+            before any network I/O.
+
+    config ESP_RMAKER_AWS_SIGN_CREDS_HTTP_TIMEOUT_MS
+        int "Credential-provider HTTP timeout (ms)"
+        default 10000
+
+    config ESP_RMAKER_AWS_SIGN_CREDS_RESPONSE_MAX
+        int "Credential-provider max response size (bytes)"
+        default 4096
+
+    config ESP_RMAKER_AWS_SIGN_CREDS_REFRESH_MARGIN_SEC
+        int "Credential refresh margin (seconds)"
+        default 300
+        help
+            Refresh cached credentials this long before their expiry. If new credentials
+            arrive with less than twice this time left, refresh them halfway to their expiry.
+
+    config ESP_RMAKER_AWS_SIGN_CREDS_DEFAULT_TTL_SEC
+        int "Credential fallback cache window (seconds)"
+        default 3000
+        help
+            Cache window used when the credential expiration can't be parsed,
+            so credentials are not re-fetched on every request.
+
+    config ESP_RMAKER_AWS_SIGN_REQUEST_HTTP_TIMEOUT_MS
+        int "Signed-request HTTP timeout (ms)"
+        default 15000
+
+    config ESP_RMAKER_AWS_SIGN_HTTP_TX_BUFFER_SIZE
+        int "ESP-IDF port HTTP TX buffer size (bytes)"
+        depends on !ESP_RMAKER_AWS_SIGN_DISABLE_DEFAULT_PORT
+        range 1024 16384
+        default 2048
+        help
+            Each request header must fit in this buffer whole. The x-amz-security-token
+            header is usually 0.7-1.5 KB, but AWS does not limit the token length. Raise
+            this value if requests fail with "Buffer length is small to fit all the headers".
+
+    config ESP_RMAKER_AWS_SIGN_REQUEST_CONN_IDLE_TIMEOUT_SEC
+        int "Signed-request pooled connection idle timeout (seconds)"
+        default 10
+        help
+            Close the pooled keep-alive connection instead of reusing it when it has been
+            idle for longer than this, so a request that would have hit a server-side idle
+            close pays a fresh handshake rather than a failed round trip. Keep it below the
+            peer's idle timeout; S3 closes at roughly 20 seconds. 0 never expires on idle.
+
+    config ESP_RMAKER_AWS_SIGN_REQUEST_RESPONSE_MAX
+        int "Signed-request max response size (bytes)"
+        default 8192
+        help
+            A ceiling, not a reservation: the response buffer is sized from the
+            Content-Length, or grown from 512 bytes when the reply is chunked.
+
+endmenu

@@ -1,0 +1,10 @@
+name: rmaker_aws_sign
+version: "1.0.0"
+description: AWS SigV4 request signing with the device certificate as identity
+url: https://github.com/espressif/esp-rainmaker-common/tree/master/components/rmaker_aws_sign
+dependencies:
+  idf: ">=5.1"
+  espressif/cjson:
+    version: "*"
+    rules:
+      - if: idf_version >=6.0.0

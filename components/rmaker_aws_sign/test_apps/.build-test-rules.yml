@@ -1,0 +1,3 @@
+components/rmaker_aws_sign/test_apps:
+  depends_filepatterns:
+    - components/rmaker_aws_sign/**/*
