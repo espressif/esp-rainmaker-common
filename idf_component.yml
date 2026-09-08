@@ -1,5 +1,5 @@
 name: rmaker_common
-version: "1.8.5"
+version: "1.8.6"
 description: ESP RainMaker firmware agent Common component
 url: https://github.com/espressif/esp-rainmaker-common
 dependencies:
