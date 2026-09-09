@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -8,8 +8,11 @@
 #include <string.h>
 #include <stdbool.h>
 #include <sdkconfig.h>
+#include <inttypes.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/semphr.h>
+#include <freertos/timers.h>
 #include <esp_log.h>
 #include <mqtt_client.h>
 #include <esp_event.h>
@@ -17,6 +20,7 @@
 #include <esp_rmaker_mqtt_glue.h>
 #include <esp_idf_version.h>
 #include <esp_rmaker_utils.h>
+#include <esp_rmaker_work_queue.h>
 #ifdef CONFIG_ESP_RMAKER_MQTT_PORT_443
 #define ESP_RMAKER_MQTT_USE_PORT_443
 #endif
@@ -29,6 +33,26 @@
 static const char *TAG = "esp_mqtt_glue";
 
 #define MAX_MQTT_SUBSCRIPTIONS      CONFIG_ESP_RMAKER_MAX_MQTT_SUBSCRIPTIONS
+
+/* A SUBSCRIBE that the broker rejects (SUBACK failure code, e.g. broker-side throttling), that could
+ * not be sent, or that esp-mqtt dropped from its outbox is re-sent until it is acknowledged. The
+ * delay between attempts starts at BASE, doubles on every attempt and is capped at MAX; retries
+ * never stop while the connection is up. A lost connection is handled separately: the timer is
+ * stopped on disconnect and every subscription is re-sent on the next connect.
+ */
+#define MQTT_SUB_RETRY_BASE_MS      (5 * 1000)
+#define MQTT_SUB_RETRY_MAX_MS       (60 * 1000)
+/* esp-mqtt silently deletes an un-acked SUBSCRIBE from its outbox after this long */
+#ifdef CONFIG_MQTT_OUTBOX_EXPIRED_TIMEOUT_MS
+#define MQTT_SUB_REQUEST_EXPIRY_MS  CONFIG_MQTT_OUTBOX_EXPIRED_TIMEOUT_MS
+#else
+#define MQTT_SUB_REQUEST_EXPIRY_MS  (30 * 1000)
+#endif
+/* Block time for timer commands; they are issued without the glue lock held (see s_sub_retry_timer) */
+#define MQTT_SUB_TIMER_CMD_WAIT_MS  100
+/* SUBACKs that arrive before their request is recorded are parked for this long */
+#define MQTT_SUB_EARLY_ACK_SLOTS    4
+#define MQTT_SUB_EARLY_ACK_TTL_MS   5000
 
 /* Subscription states for tracking subscription lifecycle */
 typedef enum {
@@ -45,21 +69,99 @@ typedef struct {
     mqtt_subscription_state_t state;
     int msg_id;                     /* Message ID from last subscribe request */
     uint8_t qos;                    /* QoS level for this subscription */
+    TickType_t request_tick;        /* When the last subscribe request was sent */
 } esp_mqtt_glue_subscription_t;
+
+/* A SUBACK that arrived before its request was recorded, see esp_mqtt_glue_send_subscribe() */
+typedef struct {
+    int msg_id;                     /* 0: slot free */
+    bool rejected;
+    TickType_t tick;
+} esp_mqtt_glue_early_ack_t;
 
 typedef struct {
     esp_mqtt_client_handle_t mqtt_client;
     esp_rmaker_mqtt_conn_params_t *conn_params;
     esp_mqtt_glue_subscription_t *subscriptions[MAX_MQTT_SUBSCRIPTIONS];
+    /* The fields below are guarded by s_glue_lock, like subscriptions[] */
+    bool connected;
+    uint32_t sub_retry_delay_ms;
+    bool timer_arm_pending;         /* A timer command was dropped; re-issue it on the next MQTT event */
+    esp_mqtt_glue_early_ack_t early_acks[MQTT_SUB_EARLY_ACK_SLOTS];
+    bool deleting;                  /* esp_mqtt_glue_deinit() has started; no new operation may begin */
+    int busy;                       /* Operations using mqtt_client outside the lock, see glue_begin_op() */
 } esp_mqtt_glue_data_t;
 esp_mqtt_glue_data_t *mqtt_data;
+
+/* Created on first init and never deleted, so that a subscribe or a retry round racing
+ * esp_mqtt_glue_deinit() always finds valid objects to synchronise on.
+ *
+ * Never call into esp-mqtt while holding s_glue_lock: the MQTT task holds its own API lock while
+ * delivering events into mqtt_event_handler(), which takes this lock.
+ */
+static SemaphoreHandle_t s_glue_lock;
+static TimerHandle_t s_sub_retry_timer;
+
+static inline void glue_lock(void)
+{
+    xSemaphoreTakeRecursive(s_glue_lock, portMAX_DELAY);
+}
+
+static inline void glue_unlock(void)
+{
+    xSemaphoreGiveRecursive(s_glue_lock);
+}
+
+/* Enter an operation that uses mqtt_data or mqtt_client outside the lock. Fails once deinit has
+ * started; deinit in turn waits for every operation entered before that to call glue_end_op().
+ */
+static bool glue_begin_op(void)
+{
+    if (!s_glue_lock) {
+        return false;
+    }
+    glue_lock();
+    if (!mqtt_data || mqtt_data->deleting) {
+        glue_unlock();
+        return false;
+    }
+    mqtt_data->busy++;
+    glue_unlock();
+    return true;
+}
+
+/* Leave an operation entered through glue_begin_op(). No NULL check on purpose: deinit() waits for
+ * busy to reach zero before it frees mqtt_data, so an operation that was let in always finds it
+ * valid here, and a NULL would be a paired-call bug that a silent check would only hide.
+ */
+static void glue_end_op(void)
+{
+    glue_lock();
+    mqtt_data->busy--;
+    glue_unlock();
+}
 
 typedef struct {
     char *data;
     char *topic;
 } esp_mqtt_glue_long_data_t;
 
+/* A (callback, priv) pair matched for an incoming message */
+typedef struct {
+    esp_rmaker_mqtt_subscribe_cb_t cb;
+    void *priv;
+} esp_mqtt_glue_cb_match_t;
+
+/* A topic collected for (re-)subscribe while the lock is held */
+typedef struct {
+    char *topic;
+    uint8_t qos;
+    bool no_suback;     /* Was requested but never acknowledged */
+} esp_mqtt_glue_pending_sub_t;
+
 static void esp_mqtt_glue_deinit(void);
+static void esp_mqtt_glue_schedule_sub_retry(void);
+static void esp_mqtt_glue_sub_retry_work(void *arg);
 
 /**
  * @brief Check if an MQTT topic matches a subscription pattern with wildcards
@@ -101,8 +203,8 @@ static bool mqtt_topic_matches(const char *topic_filter, const char *topic_name,
     return (*filter_pos == '\0' && topic_consumed == topic_len);
 }
 
-/* Helper function to reset all subscription states */
-static void esp_mqtt_glue_reset_subscription_states(void)
+/* Reset all subscription states. Caller holds the lock. */
+static void esp_mqtt_glue_reset_subscription_states_locked(void)
 {
     for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
         if (mqtt_data->subscriptions[i]) {
@@ -113,22 +215,37 @@ static void esp_mqtt_glue_reset_subscription_states(void)
 
 static void esp_mqtt_glue_subscribe_callback(const char *topic, int topic_len, const char *data, int data_len)
 {
-    esp_mqtt_glue_subscription_t **subscriptions = mqtt_data->subscriptions;
-    int i;
-    for (i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-        if (subscriptions[i]) {
-            if ((mqtt_topic_matches(subscriptions[i]->topic, topic, topic_len))) {
-                char *actual_topic = strndup(topic, topic_len);
-                if (!actual_topic) {
-                    ESP_LOGE(TAG, "Failed to allocate memory for actual topic");
-                    return;
-                }
-                /* send the actual topic to the callback */
-                subscriptions[i]->cb(actual_topic, (void *)data, data_len, subscriptions[i]->priv);
-                free(actual_topic);
-            }
+    /* Collect the matching callbacks under the lock and invoke them with it released, so that a
+     * callback may itself subscribe or unsubscribe.
+     */
+    esp_mqtt_glue_cb_match_t matches[MAX_MQTT_SUBSCRIPTIONS];
+    int count = 0;
+
+    /* topic is a length-delimited slice of the esp-mqtt receive buffer (the payload follows it), not
+     * a C string, so the callbacks get a NUL-terminated copy of the actual topic (the subscription
+     * they registered may be a wildcard).
+     */
+    char *actual_topic = strndup(topic, topic_len);
+    if (!actual_topic) {
+        ESP_LOGE(TAG, "Failed to allocate memory for actual topic");
+        return;
+    }
+
+    glue_lock();
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+        if (sub && mqtt_topic_matches(sub->topic, topic, topic_len)) {
+            matches[count].cb = sub->cb;
+            matches[count].priv = sub->priv;
+            count++;
         }
     }
+    glue_unlock();
+
+    for (int i = 0; i < count; i++) {
+        matches[i].cb(actual_topic, (void *)data, data_len, matches[i].priv);
+    }
+    free(actual_topic);
 }
 
 /*
@@ -146,27 +263,309 @@ static inline int _esp_mqtt_client_subscribe(esp_mqtt_client_handle_t client, co
 #endif
 }
 
-static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subscribe_cb_t cb, uint8_t qos, void *priv_data)
+/* Park a SUBACK whose request has not been recorded yet. Caller holds the lock. */
+static void esp_mqtt_glue_park_early_ack_locked(int msg_id, bool rejected)
 {
-    if (!mqtt_data || !topic || !cb) {
-        return ESP_FAIL;
+    TickType_t now = xTaskGetTickCount();
+    esp_mqtt_glue_early_ack_t *slot = &mqtt_data->early_acks[0];
+    for (int i = 0; i < MQTT_SUB_EARLY_ACK_SLOTS; i++) {
+        esp_mqtt_glue_early_ack_t *e = &mqtt_data->early_acks[i];
+        if (e->msg_id == 0 || (now - e->tick) > pdMS_TO_TICKS(MQTT_SUB_EARLY_ACK_TTL_MS)) {
+            slot = e;
+            break;
+        }
+        if ((now - e->tick) > (now - slot->tick)) {
+            slot = e;   /* No free slot: evict the oldest */
+        }
+    }
+    slot->msg_id = msg_id;
+    slot->rejected = rejected;
+    slot->tick = now;
+}
+
+/* Take a parked SUBACK for msg_id, if there is one. Caller holds the lock. */
+static bool esp_mqtt_glue_take_early_ack_locked(int msg_id, bool *rejected)
+{
+    TickType_t now = xTaskGetTickCount();
+    for (int i = 0; i < MQTT_SUB_EARLY_ACK_SLOTS; i++) {
+        esp_mqtt_glue_early_ack_t *e = &mqtt_data->early_acks[i];
+        if (e->msg_id == msg_id && (now - e->tick) <= pdMS_TO_TICKS(MQTT_SUB_EARLY_ACK_TTL_MS)) {
+            *rejected = e->rejected;
+            e->msg_id = 0;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Log and publish the outcome of a SUBACK, then re-evaluate the retry timer. Call without the lock. */
+static void esp_mqtt_glue_report_suback(const char *topic, bool rejected)
+{
+    if (rejected) {
+        ESP_LOGW(TAG, "Broker rejected subscription to %s. Will retry.", topic);
+    } else {
+        ESP_LOGD(TAG, "Subscription acknowledged for topic: %s", topic);
+    }
+    esp_event_post(RMAKER_COMMON_EVENT, rejected ? RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED : RMAKER_MQTT_EVENT_SUBSCRIBED,
+                   topic, strlen(topic) + 1, portMAX_DELAY);
+    esp_mqtt_glue_schedule_sub_retry();
+}
+
+/* Send one SUBSCRIBE for a topic and record the outcome on every table entry for that topic.
+ * Call without the lock held and from inside a glue operation (see glue_begin_op()).
+ *
+ * The msg_id is only known once esp-mqtt has sent the packet, and the MQTT task can deliver the
+ * SUBACK before this task gets to record it. So the entries are reserved first (REQUESTED with
+ * msg_id -1); a SUBACK that matches no recorded request is parked by the event handler and picked
+ * up here as soon as the msg_id is known.
+ */
+static void esp_mqtt_glue_send_subscribe(const char *topic, uint8_t qos)
+{
+    glue_lock();
+    bool connected = mqtt_data->connected;
+    TickType_t now = xTaskGetTickCount();
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+        if (sub && strcmp(sub->topic, topic) == 0) {
+            sub->msg_id = -1;
+            sub->state = MQTT_SUB_STATE_REQUESTED;
+            sub->request_tick = now;
+        }
+    }
+    glue_unlock();
+
+    int ret = -1;
+    if (connected) {
+        ret = _esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
     }
 
+    bool early_ack = false, early_rejected = false;
+    glue_lock();
+    if (ret >= 0) {
+        early_ack = esp_mqtt_glue_take_early_ack_locked(ret, &early_rejected);
+    }
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+        if (!sub || strcmp(sub->topic, topic) != 0 || sub->state != MQTT_SUB_STATE_REQUESTED || sub->msg_id != -1) {
+            continue;   /* Not our reservation any more, e.g. a disconnect reset it in between */
+        }
+        if (ret < 0) {
+            sub->state = MQTT_SUB_STATE_FAILED;
+        } else {
+            sub->msg_id = ret;
+            if (early_ack) {
+                sub->state = early_rejected ? MQTT_SUB_STATE_FAILED : MQTT_SUB_STATE_ACKNOWLEDGED;
+            }
+        }
+    }
+    glue_unlock();
+
+    if (ret < 0) {
+        if (connected) {
+            ESP_LOGW(TAG, "Failed to send subscribe for %s. Will retry.", topic);
+        }
+    } else if (early_ack) {
+        esp_mqtt_glue_report_suback(topic, early_rejected);
+    } else {
+        ESP_LOGD(TAG, "Subscribing to %s (msg_id: %d, QoS: %d)", topic, ret, qos);
+    }
+}
+
+/* Whether an entry needs a (re-)subscribe. Caller holds the lock. */
+static bool esp_mqtt_glue_sub_needs_send_locked(const esp_mqtt_glue_subscription_t *sub, TickType_t now)
+{
+    switch (sub->state) {
+        case MQTT_SUB_STATE_ACKNOWLEDGED:
+            return false;
+        case MQTT_SUB_STATE_REQUESTED:
+            /* No SUBACK for this long means esp-mqtt has dropped the request from its outbox */
+            return (now - sub->request_tick) > pdMS_TO_TICKS(MQTT_SUB_REQUEST_EXPIRY_MS);
+        default:
+            return true;
+    }
+}
+
+/* Send a SUBSCRIBE for every unique topic that needs one, at the highest QoS requested for it.
+ * A request that got no SUBACK within the outbox expiry is reported as failed before it is re-sent,
+ * so that a silently dropped subscribe is visible exactly like a rejected one.
+ * Returns true if at least one previously failed (as opposed to merely expired) entry was re-sent.
+ */
+static bool esp_mqtt_glue_resubscribe_pending(void)
+{
+    esp_mqtt_glue_pending_sub_t pending[MAX_MQTT_SUBSCRIPTIONS];
+    int count = 0;
+    bool resent_failed = false;
+    TickType_t now = xTaskGetTickCount();
+
+    glue_lock();
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+        if (!sub || !esp_mqtt_glue_sub_needs_send_locked(sub, now)) {
+            continue;
+        }
+        int j;
+        for (j = 0; j < count; j++) {
+            if (strcmp(pending[j].topic, sub->topic) == 0) {
+                if (sub->qos > pending[j].qos) {
+                    pending[j].qos = sub->qos;
+                }
+                break;
+            }
+        }
+        if (j < count) {
+            continue;
+        }
+        /* Copy the topic: the entry may be unsubscribed once the lock is released */
+        pending[count].topic = strdup(sub->topic);
+        if (!pending[count].topic) {
+            ESP_LOGE(TAG, "Failed to allocate memory for topic string");
+            break;
+        }
+        pending[count].qos = sub->qos;
+        pending[count].no_suback = (sub->state == MQTT_SUB_STATE_REQUESTED);
+        count++;
+    }
+    glue_unlock();
+
+    for (int i = 0; i < count; i++) {
+        if (pending[i].no_suback) {
+            ESP_LOGW(TAG, "No SUBACK for %s within %d ms. Re-subscribing.", pending[i].topic, MQTT_SUB_REQUEST_EXPIRY_MS);
+            esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED, pending[i].topic,
+                           strlen(pending[i].topic) + 1, portMAX_DELAY);
+        } else {
+            resent_failed = true;
+        }
+        esp_mqtt_glue_send_subscribe(pending[i].topic, pending[i].qos);
+        free(pending[i].topic);
+    }
+    return resent_failed;
+}
+
+/* One retry round. Runs on the RainMaker work queue when there is one (see the timer callback), so
+ * that the blocking calls in here (our lock, esp-mqtt's API lock, esp_event_post) do not stall the
+ * timer service task.
+ */
+static void esp_mqtt_glue_sub_retry_work(void *arg)
+{
+    if (!glue_begin_op()) {
+        return;
+    }
+    ESP_LOGI(TAG, "Retrying pending MQTT subscriptions");
+    /* Back off only when a failed entry was actually retried; an expiry check alone does not count */
+    if (esp_mqtt_glue_resubscribe_pending()) {
+        glue_lock();
+        mqtt_data->sub_retry_delay_ms *= 2;
+        if (mqtt_data->sub_retry_delay_ms > MQTT_SUB_RETRY_MAX_MS) {
+            mqtt_data->sub_retry_delay_ms = MQTT_SUB_RETRY_MAX_MS;
+        }
+        glue_unlock();
+    }
+    esp_mqtt_glue_schedule_sub_retry();
+    glue_end_op();
+}
+
+static void esp_mqtt_glue_sub_retry_timer_cb(TimerHandle_t timer)
+{
+    /* Hand the round to the work queue (a non-blocking post); run it here only if there is none */
+    if (esp_rmaker_work_queue_add_task(esp_mqtt_glue_sub_retry_work, NULL) != ESP_OK) {
+        esp_mqtt_glue_sub_retry_work(NULL);
+    }
+}
+
+/* Arm the retry timer if any subscription is not acknowledged, stop it once all are. */
+static void esp_mqtt_glue_schedule_sub_retry(void)
+{
+    bool failed = false, requested = false;
+    uint32_t delay_ms = 0;
+
+    glue_lock();
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+        if (!sub || sub->state == MQTT_SUB_STATE_ACKNOWLEDGED) {
+            continue;
+        }
+        if (sub->state == MQTT_SUB_STATE_REQUESTED) {
+            requested = true;
+        } else {
+            failed = true;
+        }
+    }
+    if (!mqtt_data->connected) {
+        /* Everything is re-sent on the next MQTT_EVENT_CONNECTED */
+        mqtt_data->sub_retry_delay_ms = MQTT_SUB_RETRY_BASE_MS;
+    } else if (failed) {
+        /* Jitter from the tick count, so that a fleet reconnecting together does not retry in lockstep */
+        delay_ms = mqtt_data->sub_retry_delay_ms + (xTaskGetTickCount() * portTICK_PERIOD_MS) % MQTT_SUB_RETRY_BASE_MS;
+    } else if (requested) {
+        /* Nothing failed yet. Check back once esp-mqtt would have dropped an un-acked request. */
+        delay_ms = MQTT_SUB_REQUEST_EXPIRY_MS + 1000;
+    } else {
+        mqtt_data->sub_retry_delay_ms = MQTT_SUB_RETRY_BASE_MS;
+    }
+    glue_unlock();
+
+    if (!s_sub_retry_timer) {
+        return;
+    }
+    /* The timer handle lives for the whole process, so it can be used outside the lock, and not
+     * holding the lock is what makes a non-zero block time safe here: the timer daemon may be inside
+     * a retry round waiting for our lock, and it must be able to get it to drain its command queue.
+     */
+    BaseType_t posted;
+    if (delay_ms) {
+        ESP_LOGD(TAG, "Subscribe retry check in %" PRIu32 " ms", delay_ms);
+        posted = xTimerChangePeriod(s_sub_retry_timer, pdMS_TO_TICKS(delay_ms), pdMS_TO_TICKS(MQTT_SUB_TIMER_CMD_WAIT_MS));
+    } else {
+        posted = xTimerStop(s_sub_retry_timer, pdMS_TO_TICKS(MQTT_SUB_TIMER_CMD_WAIT_MS));
+    }
+    if (posted != pdPASS) {
+        /* Timer command queue full. Do not leave pending subscriptions waiting for the next
+         * reconnect: mqtt_event_handler() re-issues the command on the next MQTT event. */
+        ESP_LOGE(TAG, "Could not %s the subscribe retry timer, will retry on the next MQTT event", delay_ms ? "arm" : "stop");
+        glue_lock();
+        if (mqtt_data) {
+            mqtt_data->timer_arm_pending = true;
+        }
+        glue_unlock();
+    }
+}
+
+/* Connection is gone: forget broker-side state and stop retrying until the next connect. */
+static void esp_mqtt_glue_mark_disconnected(void)
+{
+    glue_lock();
+    mqtt_data->connected = false;
+    esp_mqtt_glue_reset_subscription_states_locked();
+    mqtt_data->sub_retry_delay_ms = MQTT_SUB_RETRY_BASE_MS;
+    glue_unlock();
+    if (s_sub_retry_timer && xTimerStop(s_sub_retry_timer, pdMS_TO_TICKS(MQTT_SUB_TIMER_CMD_WAIT_MS)) != pdPASS) {
+        /* Harmless: a round that fires while disconnected finds nothing to send */
+        ESP_LOGD(TAG, "Could not stop the subscribe retry timer");
+    }
+}
+
+static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subscribe_cb_t cb, uint8_t qos, void *priv_data)
+{
+    if (!topic || !cb || !glue_begin_op()) {
+        return ESP_FAIL;
+    }
+    esp_err_t err = ESP_OK;
     esp_mqtt_glue_subscription_t *existing_entry = NULL;
     bool topic_has_active_subscription = false;
+    bool need_send = false;
     int empty_slot = -1;
 
+    glue_lock();
     /* Single pass: gather all the info we need */
     for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-        if (mqtt_data->subscriptions[i]) {
-            if (strcmp(topic, mqtt_data->subscriptions[i]->topic) == 0) {
-                /* Same topic found */
-                if (cb == mqtt_data->subscriptions[i]->cb) {
-                    /* Same callback too - this is an update */
-                    existing_entry = mqtt_data->subscriptions[i];
+        esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+        if (sub) {
+            if (strcmp(topic, sub->topic) == 0) {
+                if (cb == sub->cb) {
+                    /* Same topic and callback: this is an update */
+                    existing_entry = sub;
                 }
-                /* Check if this topic has an active subscription */
-                if (mqtt_data->subscriptions[i]->state == MQTT_SUB_STATE_ACKNOWLEDGED) {
+                if (sub->state == MQTT_SUB_STATE_ACKNOWLEDGED) {
                     topic_has_active_subscription = true;
                 }
             }
@@ -175,128 +574,110 @@ static esp_err_t esp_mqtt_glue_subscribe(const char *topic, esp_rmaker_mqtt_subs
         }
     }
 
-    /* Handle existing entry (same topic + same callback) */
     if (existing_entry) {
         existing_entry->priv = priv_data;
-
-        bool need_resubscribe = false;
-
-        if (existing_entry->state != MQTT_SUB_STATE_ACKNOWLEDGED) {
-            /* Not acknowledged yet, need to re-subscribe */
-            need_resubscribe = true;
-        } else if (existing_entry->qos < qos) {
-            /* QoS upgrade needed, re-subscribe */
-            need_resubscribe = true;
+        if (existing_entry->qos < qos) {
             ESP_LOGD(TAG, "QoS upgrade requested for topic: %s (%d->%d)", topic, existing_entry->qos, qos);
+            existing_entry->qos = qos;
+            need_send = true;
+        } else if (existing_entry->state == MQTT_SUB_STATE_NONE || existing_entry->state == MQTT_SUB_STATE_FAILED) {
+            /* Not acknowledged and not in flight: send now rather than waiting for the retry timer */
+            need_send = true;
         }
-
-        if (need_resubscribe) {
-            int ret = _esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
-            if (ret >= 0) {
-                existing_entry->msg_id = ret;
-                existing_entry->state = MQTT_SUB_STATE_REQUESTED;
-                existing_entry->qos = qos;
-                ESP_LOGD(TAG, "Re-subscribing to topic: %s (msg_id: %d, QoS: %d)", topic, ret, qos);
-            } else {
-                existing_entry->state = MQTT_SUB_STATE_FAILED;
-                ESP_LOGW(TAG, "Failed to re-subscribe to topic: %s", topic);
-            }
+        qos = existing_entry->qos;
+    } else {
+        if (empty_slot == -1) {
+            glue_unlock();
+            ESP_LOGE(TAG, "No space for new subscription to topic: %s", topic);
+            err = ESP_FAIL;
+            goto done;
         }
-        return ESP_OK;
-    }
-
-    /* Need to create new entry */
-    if (empty_slot == -1) {
-        ESP_LOGE(TAG, "No space for new subscription to topic: %s", topic);
-        return ESP_FAIL;
-    }
-
-    /* Create and populate new subscription */
-    esp_mqtt_glue_subscription_t *subscription = calloc(1, sizeof(esp_mqtt_glue_subscription_t));
-    if (!subscription) {
-        ESP_LOGE(TAG, "Failed to allocate memory for subscription");
-        return ESP_FAIL;
-    }
-
-    subscription->topic = strdup(topic);
-    if (!subscription->topic) {
-        free(subscription);
-        ESP_LOGE(TAG, "Failed to allocate memory for topic string");
-        return ESP_FAIL;
-    }
-
-    subscription->priv = priv_data;
-    subscription->cb = cb;
-    subscription->qos = qos;
-    subscription->state = topic_has_active_subscription ? MQTT_SUB_STATE_ACKNOWLEDGED : MQTT_SUB_STATE_NONE;
-
-    /* Add to database first */
-    mqtt_data->subscriptions[empty_slot] = subscription;
-
-    /* Send MQTT subscribe only if needed */
-    if (!topic_has_active_subscription) {
-        int ret = _esp_mqtt_client_subscribe(mqtt_data->mqtt_client, topic, qos);
-        if (ret >= 0) {
-            subscription->msg_id = ret;
-            subscription->state = MQTT_SUB_STATE_REQUESTED;
-            ESP_LOGD(TAG, "Subscribed to topic: %s (msg_id: %d)", topic, ret);
-        } else {
-            subscription->state = MQTT_SUB_STATE_FAILED;
-            ESP_LOGW(TAG, "MQTT subscribe failed for topic: %s, keeping in DB for retry", topic);
+        esp_mqtt_glue_subscription_t *subscription = calloc(1, sizeof(esp_mqtt_glue_subscription_t));
+        if (!subscription) {
+            glue_unlock();
+            ESP_LOGE(TAG, "Failed to allocate memory for subscription");
+            err = ESP_FAIL;
+            goto done;
         }
+        subscription->topic = strdup(topic);
+        if (!subscription->topic) {
+            glue_unlock();
+            free(subscription);
+            ESP_LOGE(TAG, "Failed to allocate memory for topic string");
+            err = ESP_FAIL;
+            goto done;
+        }
+        subscription->priv = priv_data;
+        subscription->cb = cb;
+        subscription->qos = qos;
+        subscription->state = topic_has_active_subscription ? MQTT_SUB_STATE_ACKNOWLEDGED : MQTT_SUB_STATE_NONE;
+        mqtt_data->subscriptions[empty_slot] = subscription;
+        need_send = !topic_has_active_subscription;
+    }
+    glue_unlock();
+
+    if (need_send) {
+        esp_mqtt_glue_send_subscribe(topic, qos);
+        esp_mqtt_glue_schedule_sub_retry();
     } else {
         ESP_LOGD(TAG, "Added callback for already-subscribed topic: %s", topic);
     }
-
-    return ESP_OK;
+done:
+    glue_end_op();
+    return err;
 }
 
-static void unsubscribe_helper(esp_mqtt_glue_subscription_t **subscription)
+/* Detach the entry at *slot from the table. Caller holds the lock. *send_unsubscribe is set when
+ * the broker-side subscription should go too: connected, and no other entry uses the same topic.
+ */
+static esp_mqtt_glue_subscription_t *esp_mqtt_glue_detach_locked(esp_mqtt_glue_subscription_t **slot, bool *send_unsubscribe)
 {
-    if (subscription && *subscription) {
-        /* Only send MQTT unsubscribe if this is the last subscription for this topic */
-        bool other_subscription_exists = false;
-        for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-            if (mqtt_data->subscriptions[i] &&
-                mqtt_data->subscriptions[i] != *subscription &&
-                strcmp(mqtt_data->subscriptions[i]->topic, (*subscription)->topic) == 0) {
-                other_subscription_exists = true;
-                break;
-            }
+    esp_mqtt_glue_subscription_t *sub = *slot;
+    *slot = NULL;
+    *send_unsubscribe = mqtt_data->connected;
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        if (mqtt_data->subscriptions[i] && strcmp(mqtt_data->subscriptions[i]->topic, sub->topic) == 0) {
+            *send_unsubscribe = false;
+            break;
         }
-
-        if (!other_subscription_exists) {
-            if (esp_mqtt_client_unsubscribe(mqtt_data->mqtt_client, (*subscription)->topic) < 0) {
-                ESP_LOGW(TAG, "Could not unsubscribe from topic: %s", (*subscription)->topic);
-            } else {
-                ESP_LOGD(TAG, "Unsubscribed from topic: %s", (*subscription)->topic);
-            }
-        } else {
-            ESP_LOGD(TAG, "Not unsubscribing from topic %s - other callbacks still exist", (*subscription)->topic);
-        }
-
-        free((*subscription)->topic);
-        free(*subscription);
-        *subscription = NULL;
     }
+    return sub;
+}
+
+/* Send UNSUBSCRIBE if requested and free a detached entry. Call without the lock held. */
+static void esp_mqtt_glue_release(esp_mqtt_glue_subscription_t *sub, bool send_unsubscribe)
+{
+    if (!send_unsubscribe) {
+        ESP_LOGD(TAG, "Not sending UNSUBSCRIBE for %s (not connected, or other callbacks still use it)", sub->topic);
+    } else if (esp_mqtt_client_unsubscribe(mqtt_data->mqtt_client, sub->topic) < 0) {
+        ESP_LOGW(TAG, "Could not unsubscribe from topic: %s", sub->topic);
+    } else {
+        ESP_LOGD(TAG, "Unsubscribed from topic: %s", sub->topic);
+    }
+    free(sub->topic);
+    free(sub);
 }
 
 static esp_err_t esp_mqtt_glue_unsubscribe(const char *topic)
 {
-    if (!mqtt_data || !topic) {
+    if (!topic || !glue_begin_op()) {
         return ESP_FAIL;
     }
-    esp_mqtt_glue_subscription_t **subscriptions = mqtt_data->subscriptions;
-    int i;
-    for (i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-        if (subscriptions[i]) {
-            if (strncmp(topic, subscriptions[i]->topic, strlen(topic)) == 0) {
-                unsubscribe_helper(&subscriptions[i]);
-                return ESP_OK;
-            }
+    esp_mqtt_glue_subscription_t *sub = NULL;
+    bool send_unsubscribe = false;
+    glue_lock();
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+        if (mqtt_data->subscriptions[i] && strncmp(topic, mqtt_data->subscriptions[i]->topic, strlen(topic)) == 0) {
+            sub = esp_mqtt_glue_detach_locked(&mqtt_data->subscriptions[i], &send_unsubscribe);
+            break;
         }
     }
-    return ESP_FAIL;
+    glue_unlock();
+    if (sub) {
+        esp_mqtt_glue_release(sub, send_unsubscribe);
+    }
+    glue_end_op();
+    return sub ? ESP_OK : ESP_FAIL;
 }
 
 static esp_err_t esp_mqtt_glue_publish(const char *topic, void *data, size_t data_len, uint8_t qos, int *msg_id)
@@ -368,77 +749,68 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 {
     esp_mqtt_event_handle_t event = event_data;
 
+    /* A timer command that found the timer queue full is re-issued on the next event of any kind */
+    bool rearm = false;
+    glue_lock();
+    if (mqtt_data && mqtt_data->timer_arm_pending) {
+        mqtt_data->timer_arm_pending = false;
+        rearm = true;
+    }
+    glue_unlock();
+    if (rearm) {
+        esp_mqtt_glue_schedule_sub_retry();
+    }
+
     switch (event_id) {
         case MQTT_EVENT_CONNECTED:
             ESP_LOGI(TAG, "MQTT Connected");
-            /* Reset all subscription states on reconnection */
-            esp_mqtt_glue_reset_subscription_states();
-
-            /* Re-subscribe to unique topics only */
-            for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-                if (!mqtt_data->subscriptions[i]) continue;
-
-                /* Skip if we already processed this topic */
-                bool topic_already_processed = false;
-                for (int j = 0; j < i; j++) {
-                    if (mqtt_data->subscriptions[j] &&
-                        strcmp(mqtt_data->subscriptions[i]->topic, mqtt_data->subscriptions[j]->topic) == 0) {
-                        topic_already_processed = true;
-                        break;
-                    }
-                }
-                if (topic_already_processed) continue;
-
-                /* Find highest QoS for this topic */
-                uint8_t max_qos = mqtt_data->subscriptions[i]->qos;
-                for (int j = i + 1; j < MAX_MQTT_SUBSCRIPTIONS; j++) {
-                    if (mqtt_data->subscriptions[j] &&
-                        strcmp(mqtt_data->subscriptions[i]->topic, mqtt_data->subscriptions[j]->topic) == 0 &&
-                        mqtt_data->subscriptions[j]->qos > max_qos) {
-                        max_qos = mqtt_data->subscriptions[j]->qos;
-                    }
-                }
-
-                /* Subscribe once with highest QoS */
-                int ret = _esp_mqtt_client_subscribe(event->client, mqtt_data->subscriptions[i]->topic, max_qos);
-                mqtt_subscription_state_t new_state = (ret >= 0) ? MQTT_SUB_STATE_REQUESTED : MQTT_SUB_STATE_FAILED;
-
-                /* Update all subscriptions for this topic */
-                for (int j = i; j < MAX_MQTT_SUBSCRIPTIONS; j++) {
-                    if (mqtt_data->subscriptions[j] &&
-                        strcmp(mqtt_data->subscriptions[i]->topic, mqtt_data->subscriptions[j]->topic) == 0) {
-                        mqtt_data->subscriptions[j]->msg_id = (ret >= 0) ? ret : -1;
-                        mqtt_data->subscriptions[j]->state = new_state;
-                    }
-                }
-
-                if (ret >= 0) {
-                    ESP_LOGD(TAG, "Reconnect: Subscribed to %s (msg_id: %d, QoS: %d)",
-                             mqtt_data->subscriptions[i]->topic, ret, max_qos);
-                } else {
-                    ESP_LOGW(TAG, "Reconnect: Failed to subscribe to %s", mqtt_data->subscriptions[i]->topic);
-                }
-            }
+            glue_lock();
+            mqtt_data->connected = true;
+            /* Broker-side subscriptions did not survive the reconnect; re-send all of them */
+            esp_mqtt_glue_reset_subscription_states_locked();
+            mqtt_data->sub_retry_delay_ms = MQTT_SUB_RETRY_BASE_MS;
+            glue_unlock();
+            esp_mqtt_glue_resubscribe_pending();
+            esp_mqtt_glue_schedule_sub_retry();
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_CONNECTED, NULL, 0, portMAX_DELAY);
             break;
         case MQTT_EVENT_DISCONNECTED:
             ESP_LOGW(TAG, "MQTT Disconnected. Will try reconnecting in a while...");
-            /* Mark all subscriptions as disconnected - they'll need re-acknowledgment */
-            esp_mqtt_glue_reset_subscription_states();
+            esp_mqtt_glue_mark_disconnected();
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_DISCONNECTED, NULL, 0, portMAX_DELAY);
             break;
-
-        case MQTT_EVENT_SUBSCRIBED:
-            ESP_LOGD(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
-            /* Mark matching subscriptions as acknowledged */
+        case MQTT_EVENT_SUBSCRIBED: {
+            /* esp-mqtt reports a SUBACK failure code (e.g. broker throttling) as a normal
+             * SUBSCRIBED event with the error type set, so check it before trusting the ack.
+             */
+            bool rejected = event->error_handle &&
+                            event->error_handle->error_type == MQTT_ERROR_TYPE_SUBSCRIBE_FAILED;
+            char *topic = NULL;
+            glue_lock();
             for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
-                if (mqtt_data->subscriptions[i] &&
-                    mqtt_data->subscriptions[i]->msg_id == event->msg_id) {
-                    mqtt_data->subscriptions[i]->state = MQTT_SUB_STATE_ACKNOWLEDGED;
-                    ESP_LOGD(TAG, "Subscription acknowledged for topic: %s", mqtt_data->subscriptions[i]->topic);
+                esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+                if (sub && sub->state == MQTT_SUB_STATE_REQUESTED && sub->msg_id == event->msg_id) {
+                    sub->state = rejected ? MQTT_SUB_STATE_FAILED : MQTT_SUB_STATE_ACKNOWLEDGED;
+                    if (!topic) {
+                        topic = strdup(sub->topic);
+                    }
                 }
             }
+            if (!topic) {
+                /* Either the sending task has not recorded this msg_id yet (see
+                 * esp_mqtt_glue_send_subscribe()), or the topic was unsubscribed meanwhile.
+                 * Park the result for the former case; it expires harmlessly in the latter. */
+                esp_mqtt_glue_park_early_ack_locked(event->msg_id, rejected);
+            }
+            glue_unlock();
+            if (topic) {
+                esp_mqtt_glue_report_suback(topic, rejected);
+                free(topic);
+            } else {
+                ESP_LOGD(TAG, "SUBACK for msg_id %d has no recorded request yet", event->msg_id);
+            }
             break;
+        }
         case MQTT_EVENT_UNSUBSCRIBED:
             ESP_LOGD(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
             break;
@@ -447,10 +819,35 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_PUBLISHED, &event->msg_id, sizeof(event->msg_id), portMAX_DELAY);
             break;
 #ifdef CONFIG_MQTT_REPORT_DELETED_MESSAGES
-        case MQTT_EVENT_DELETED:
+        case MQTT_EVENT_DELETED: {
             ESP_LOGD(TAG, "MQTT_EVENT_DELETED, msg_id=%d", event->msg_id);
+            /* An un-acked SUBSCRIBE dropped from the esp-mqtt outbox counts as a failure.
+             * esp-mqtt msg_ids are shared by PUBLISH, SUBSCRIBE and UNSUBSCRIBE and this event
+             * carries no packet type, so a dropped QoS1 publish whose id collides with a still
+             * outstanding subscribe is misread as a dropped subscribe. That needs the 16-bit id
+             * space to wrap while the subscribe is unacknowledged, and costs one redundant
+             * re-subscribe, so it is tolerated. */
+            char *topic = NULL;
+            glue_lock();
+            for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+                esp_mqtt_glue_subscription_t *sub = mqtt_data->subscriptions[i];
+                if (sub && sub->state == MQTT_SUB_STATE_REQUESTED && sub->msg_id == event->msg_id) {
+                    sub->state = MQTT_SUB_STATE_FAILED;
+                    if (!topic) {
+                        topic = strdup(sub->topic);
+                    }
+                }
+            }
+            glue_unlock();
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_MSG_DELETED, &event->msg_id, sizeof(event->msg_id), portMAX_DELAY);
+            if (topic) {
+                ESP_LOGW(TAG, "Subscribe request for %s was dropped without a SUBACK. Will retry.", topic);
+                esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED, topic, strlen(topic) + 1, portMAX_DELAY);
+                free(topic);
+                esp_mqtt_glue_schedule_sub_retry();
+            }
             break;
+        }
 #endif /* CONFIG_MQTT_REPORT_DELETED_MESSAGES */
         case MQTT_EVENT_DATA: {
             ESP_LOGD(TAG, "MQTT_EVENT_DATA");
@@ -501,11 +898,19 @@ static void esp_mqtt_glue_unsubscribe_all(void)
     if (!mqtt_data) {
         return;
     }
-    int i;
-    for (i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
+    esp_mqtt_glue_subscription_t *subs[MAX_MQTT_SUBSCRIPTIONS];
+    bool send_unsubscribe[MAX_MQTT_SUBSCRIPTIONS];
+    int count = 0;
+    glue_lock();
+    for (int i = 0; i < MAX_MQTT_SUBSCRIPTIONS; i++) {
         if (mqtt_data->subscriptions[i]) {
-            unsubscribe_helper(&(mqtt_data->subscriptions[i]));
+            subs[count] = esp_mqtt_glue_detach_locked(&mqtt_data->subscriptions[i], &send_unsubscribe[count]);
+            count++;
         }
+    }
+    glue_unlock();
+    for (int i = 0; i < count; i++) {
+        esp_mqtt_glue_release(subs[i], send_unsubscribe[i]);
     }
 }
 
@@ -516,6 +921,7 @@ static esp_err_t esp_mqtt_glue_disconnect(void)
     }
     esp_mqtt_glue_unsubscribe_all();
     esp_err_t err = esp_mqtt_client_stop(mqtt_data->mqtt_client);
+    esp_mqtt_glue_mark_disconnected();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to disconnect from MQTT");
     } else {
@@ -618,6 +1024,20 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
     }
     ESP_LOGI(TAG, "AWS PPI: %s", username);
 #endif
+    if (!s_glue_lock) {
+        s_glue_lock = xSemaphoreCreateRecursiveMutex();
+        if (!s_glue_lock) {
+            ESP_LOGE(TAG, "Failed to create MQTT glue lock");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    if (!s_sub_retry_timer) {
+        s_sub_retry_timer = xTimerCreate("mqtt_sub_retry", pdMS_TO_TICKS(MQTT_SUB_RETRY_BASE_MS), pdFALSE, NULL,
+                                         esp_mqtt_glue_sub_retry_timer_cb);
+        if (!s_sub_retry_timer) {
+            ESP_LOGW(TAG, "Could not create subscribe retry timer. Failed subscriptions will be retried only on reconnect.");
+        }
+    }
     if (mqtt_data) {
         ESP_LOGE(TAG, "MQTT already initialized");
         return ESP_OK;
@@ -627,36 +1047,66 @@ static esp_err_t esp_mqtt_glue_init(esp_rmaker_mqtt_conn_params_t *conn_params)
         return ESP_FAIL;
     }
     ESP_LOGI(TAG, "Initialising MQTT");
-    mqtt_data = calloc(1, sizeof(esp_mqtt_glue_data_t));
-    if (!mqtt_data) {
+    esp_mqtt_glue_data_t *data = calloc(1, sizeof(esp_mqtt_glue_data_t));
+    if (!data) {
         ESP_LOGE(TAG, "Failed to allocate memory for esp_mqtt_glue_data_t");
         return ESP_ERR_NO_MEM;
     }
-    mqtt_data->conn_params = conn_params;
+    data->conn_params = conn_params;
+    data->sub_retry_delay_ms = MQTT_SUB_RETRY_BASE_MS;
 
     esp_mqtt_client_config_t mqtt_client_cfg = esp_mqtt_glue_create_client_config(conn_params);
     esp_mqtt_glue_log_lwt(conn_params);
 
-    mqtt_data->mqtt_client = esp_mqtt_client_init(&mqtt_client_cfg);
-    if (!mqtt_data->mqtt_client) {
+    data->mqtt_client = esp_mqtt_client_init(&mqtt_client_cfg);
+    if (!data->mqtt_client) {
         ESP_LOGE(TAG, "esp_mqtt_client_init failed");
-        esp_mqtt_glue_deinit();
+        free(data);
         return ESP_FAIL;
     }
-    esp_mqtt_client_register_event(mqtt_data->mqtt_client , ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+    /* Publish the instance only once it is complete; glue_begin_op() checks it under the lock */
+    glue_lock();
+    mqtt_data = data;
+    glue_unlock();
+    esp_mqtt_client_register_event(data->mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     return ESP_OK;
 }
 
 static void esp_mqtt_glue_deinit(void)
 {
+    if (!s_glue_lock) {
+        return;
+    }
+    glue_lock();
+    if (!mqtt_data || mqtt_data->deleting) {
+        glue_unlock();
+        return;
+    }
+    mqtt_data->deleting = true;
+    glue_unlock();
+
+    if (s_sub_retry_timer) {
+        xTimerStop(s_sub_retry_timer, portMAX_DELAY);
+    }
+    /* Wait for a retry round or a subscribe/unsubscribe that is already past glue_begin_op().
+     * Anything that starts after this point is turned away by the deleting flag. */
+    for (;;) {
+        glue_lock();
+        int busy = mqtt_data->busy;
+        glue_unlock();
+        if (busy == 0) {
+            break;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
     esp_mqtt_glue_unsubscribe_all();
-    if (mqtt_data && mqtt_data->mqtt_client) {
+    if (mqtt_data->mqtt_client) {
         esp_mqtt_client_destroy(mqtt_data->mqtt_client);
     }
-    if (mqtt_data) {
-        free(mqtt_data);
-        mqtt_data = NULL;
-    }
+    glue_lock();
+    free(mqtt_data);
+    mqtt_data = NULL;
+    glue_unlock();
 }
 
 /* Update MQTT config (including LWT) and reconnect.
@@ -681,6 +1131,7 @@ static esp_err_t esp_mqtt_glue_update_config(esp_rmaker_mqtt_conn_params_t *conn
         ESP_LOGW(TAG, "Failed to stop MQTT client: %d", err);
         /* Continue anyway - try to update config */
     }
+    esp_mqtt_glue_mark_disconnected();
 
     /* Update the stored conn_params */
     mqtt_data->conn_params = conn_params;
