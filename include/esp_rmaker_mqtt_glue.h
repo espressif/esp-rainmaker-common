@@ -129,6 +129,12 @@ typedef esp_err_t (*esp_rmaker_mqtt_publish_t)(const char *topic, void *data, si
  * @param[in] qos Quality of service for the subscription.
  * @param[in] priv_data Optional private data to be passed to the callback.
  *
+ * @note With the default esp-mqtt glue, ESP_OK means the subscription was accepted, not that
+ * the broker has acknowledged it. A request that cannot be sent, is rejected by the broker
+ * (SUBACK failure code) or is dropped is retried internally with backoff, and all subscriptions
+ * are re-sent on every reconnect. RMAKER_MQTT_EVENT_SUBSCRIBED and
+ * RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED (event data: the topic) report the outcome.
+ *
  * @return ESP_OK on success.
  * @return error in case of any error.
  */

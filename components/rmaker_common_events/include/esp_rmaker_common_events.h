@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2021 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2021-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -47,6 +47,19 @@ typedef enum {
      * Valid only if CONFIG_MQTT_REPORT_DELETED_MESSAGES is enabled.
      */
     RMAKER_MQTT_EVENT_MSG_DELETED,
+    /** MQTT subscription acknowledged by the broker. Event data is the NUL-terminated topic.
+     * Also posted for every subscription re-established after a reconnect.
+     * Note: this and RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED are usually posted while the MQTT task
+     * holds its API lock, so a handler must not publish or subscribe directly; defer that to a
+     * timer or the work queue.
+     */
+    RMAKER_MQTT_EVENT_SUBSCRIBED,
+    /** MQTT subscription rejected by the broker (SUBACK failure code, e.g. throttling) or
+     * dropped without an acknowledgement. Event data is the NUL-terminated topic. The
+     * subscription is retried internally with backoff and RMAKER_MQTT_EVENT_SUBSCRIBED
+     * follows once it succeeds.
+     */
+    RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED,
 } esp_rmaker_common_event_t;
 #ifdef __cplusplus
 }
