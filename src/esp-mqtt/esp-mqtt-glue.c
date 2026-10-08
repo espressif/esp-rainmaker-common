@@ -87,6 +87,9 @@ typedef struct {
     esp_mqtt_glue_subscription_t *subscriptions[MAX_MQTT_SUBSCRIPTIONS];
     /* The fields below are guarded by s_glue_lock, like subscriptions[] */
     bool connected;
+    /* Set on MQTT_EVENT_BEFORE_CONNECT and cleared on the next event. mqtt_task holds the
+     * esp-mqtt API lock across the blocking TLS connect in between. */
+    bool connecting;
     uint32_t sub_retry_delay_ms;
     bool timer_arm_pending;         /* A timer command was dropped; re-issue it on the next MQTT event */
     esp_mqtt_glue_early_ack_t early_acks[MQTT_SUB_EARLY_ACK_SLOTS];
@@ -552,6 +555,7 @@ static void esp_mqtt_glue_mark_disconnected(void)
 {
     glue_lock();
     mqtt_data->connected = false;
+    mqtt_data->connecting = false;
     esp_mqtt_glue_reset_subscription_states_locked();
     mqtt_data->sub_retry_delay_ms = MQTT_SUB_RETRY_BASE_MS;
     glue_unlock();
@@ -699,11 +703,25 @@ static esp_err_t esp_mqtt_glue_unsubscribe(const char *topic)
 
 static esp_err_t esp_mqtt_glue_publish(const char *topic, void *data, size_t data_len, uint8_t qos, int *msg_id)
 {
-    if (!mqtt_data || !topic || !data) {
+    if (!topic || !data || !glue_begin_op()) {
         return ESP_FAIL;
+    }
+    glue_lock();
+    bool connecting = mqtt_data->connecting;
+    glue_unlock();
+    if (connecting) {
+        /* mqtt_task holds the esp-mqtt API lock from MQTT_EVENT_BEFORE_CONNECT across the
+         * blocking TLS connect. Publishing here would stall the caller until that connect
+         * finishes or times out, so the message is dropped. Once any other MQTT event is
+         * reported, esp_mqtt_client_publish() no longer blocks on the connect, and QoS > 0
+         * is queued by esp-mqtt. */
+        ESP_LOGW(TAG, "Dropping publish to %s: MQTT connect in progress", topic);
+        glue_end_op();
+        return ESP_ERR_INVALID_STATE;
     }
     ESP_LOGD(TAG, "Publishing to %s", topic);
     int ret = esp_mqtt_client_publish(mqtt_data->mqtt_client, topic, data, data_len, qos, 0);
+    glue_end_op();
     if (ret < 0) {
         ESP_LOGE(TAG, "MQTT Publish failed");
         return ESP_FAIL;
@@ -773,6 +791,11 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         mqtt_data->timer_arm_pending = false;
         rearm = true;
     }
+    /* BEFORE_CONNECT is the only state in which esp_mqtt_client_publish() blocks on TLS.
+     * Any other event means that connect attempt is over. */
+    if (mqtt_data && event_id != MQTT_EVENT_BEFORE_CONNECT) {
+        mqtt_data->connecting = false;
+    }
     glue_unlock();
     if (rearm) {
         esp_mqtt_glue_schedule_sub_retry();
@@ -795,6 +818,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             ESP_LOGW(TAG, "MQTT Disconnected. Will try reconnecting in a while...");
             esp_mqtt_glue_mark_disconnected();
             esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_DISCONNECTED, NULL, 0, portMAX_DELAY);
+            break;
+        case MQTT_EVENT_BEFORE_CONNECT:
+            /* mqtt_task is about to block in transport connect while holding the API lock.
+             * Publishes are dropped until the next event. */
+            glue_lock();
+            mqtt_data->connecting = true;
+            glue_unlock();
             break;
         case MQTT_EVENT_SUBSCRIBED: {
             /* esp-mqtt reports a SUBACK failure code (e.g. broker throttling) as a normal
@@ -1112,7 +1142,7 @@ static void esp_mqtt_glue_deinit(void)
     if (s_sub_retry_timer) {
         xTimerStop(s_sub_retry_timer, portMAX_DELAY);
     }
-    /* Wait for a retry round or a subscribe/unsubscribe that is already past glue_begin_op().
+    /* Wait for a retry round or a subscribe/unsubscribe/publish that is already past glue_begin_op().
      * Anything that starts after this point is turned away by the deleting flag. */
     for (;;) {
         glue_lock();
