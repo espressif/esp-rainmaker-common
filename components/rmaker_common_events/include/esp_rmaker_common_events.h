@@ -60,6 +60,22 @@ typedef enum {
      * follows once it succeeds.
      */
     RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED,
+    /** MQTT client reported an error. Posted only when the esp-mqtt backend is selected
+     * (CONFIG_ESP_RMAKER_LIB_ESP_MQTT).
+     *
+     * To read event data, include "mqtt_client.h" and cast event_data to
+     * esp_mqtt_error_codes_t *. The data is a copy and is valid only for the duration
+     * of the handler.
+     *
+     * Meaningful fields depend on error_type:
+     * - MQTT_ERROR_TYPE_TCP_TRANSPORT: esp_tls_last_esp_err, esp_tls_stack_err,
+     *   esp_tls_cert_verify_flags, esp_transport_sock_errno
+     * - MQTT_ERROR_TYPE_CONNECTION_REFUSED: connect_return_code
+     *
+     * This event can be posted on every failed reconnect attempt. Handlers should be
+     * cheap and non-blocking.
+     */
+    RMAKER_MQTT_EVENT_ERROR,
 } esp_rmaker_common_event_t;
 #ifdef __cplusplus
 }

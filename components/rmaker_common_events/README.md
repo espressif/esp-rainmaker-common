@@ -29,6 +29,9 @@ The events in `esp_rmaker_common_event_t` (see `esp_rmaker_common_events.h` for 
 | `RMAKER_EVENT_TZ_POSIX_CHANGED` | POSIX timezone changed (data: POSIX TZ string) |
 | `RMAKER_EVENT_TZ_CHANGED` | Timezone changed (data: timezone string) |
 | `RMAKER_MQTT_EVENT_MSG_DELETED` | MQTT message dropped from the outbox (data: message ID, `int`) |
+| `RMAKER_MQTT_EVENT_SUBSCRIBED` | MQTT subscription acknowledged (data: NUL-terminated topic) |
+| `RMAKER_MQTT_EVENT_SUBSCRIBE_FAILED` | MQTT subscription rejected or dropped (data: NUL-terminated topic) |
+| `RMAKER_MQTT_EVENT_ERROR` | MQTT transport, TLS or CONNACK error (data: `esp_mqtt_error_codes_t`) |
 
 > Note: the enum values are positional. Append new events at the end to preserve binary/ABI compatibility for existing users.
 

@@ -53,6 +53,8 @@ static const char *TAG = "esp_mqtt_glue";
 /* SUBACKs that arrive before their request is recorded are parked for this long */
 #define MQTT_SUB_EARLY_ACK_SLOTS    4
 #define MQTT_SUB_EARLY_ACK_TTL_MS   5000
+/* Diagnostic error events may be dropped if the default event loop is backed up */
+#define MQTT_ERROR_EVENT_POST_WAIT_MS  100
 
 /* Subscription states for tracking subscription lifecycle */
 typedef enum {
@@ -162,6 +164,21 @@ typedef struct {
 static void esp_mqtt_glue_deinit(void);
 static void esp_mqtt_glue_schedule_sub_retry(void);
 static void esp_mqtt_glue_sub_retry_work(void *arg);
+
+static void esp_mqtt_glue_log_error(const esp_mqtt_error_codes_t *error)
+{
+    if (!error) {
+        ESP_LOGE(TAG, "MQTT_EVENT_ERROR");
+        return;
+    }
+    ESP_LOGE(TAG, "MQTT_EVENT_ERROR: error_type=%d, esp_tls_last_esp_err=0x%x, "
+             "esp_tls_stack_err=0x%x, esp_tls_cert_verify_flags=0x%x, "
+             "esp_transport_sock_errno=%d, connect_return_code=%d",
+             error->error_type, (unsigned int)error->esp_tls_last_esp_err,
+             (unsigned int)error->esp_tls_stack_err,
+             (unsigned int)error->esp_tls_cert_verify_flags, error->esp_transport_sock_errno,
+             error->connect_return_code);
+}
 
 /**
  * @brief Check if an MQTT topic matches a subscription pattern with wildcards
@@ -871,7 +888,14 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             break;
         }
         case MQTT_EVENT_ERROR:
-            ESP_LOGE(TAG, "MQTT_EVENT_ERROR");
+            esp_mqtt_glue_log_error(event->error_handle);
+            if (event->error_handle) {
+                if (esp_event_post(RMAKER_COMMON_EVENT, RMAKER_MQTT_EVENT_ERROR,
+                               event->error_handle, sizeof(*event->error_handle),
+                               pdMS_TO_TICKS(MQTT_ERROR_EVENT_POST_WAIT_MS)) != ESP_OK) {
+                    ESP_LOGD(TAG, "Dropped RMAKER_MQTT_EVENT_ERROR (event queue full)");
+                }
+            }
             break;
         default:
             ESP_LOGD(TAG, "Other event id:%d", event->event_id);
