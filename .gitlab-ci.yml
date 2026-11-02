@@ -3,6 +3,13 @@ stages:
   - build
   - unittest
 
+# Push pipelines only: an MR pipeline would hold just the jobs with rules and hide the others.
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: never
+    - when: always
+
 variables:
   DOCKER_IMAGE: "espressif/idf:latest"
   GIT_SUBMODULE_STRATEGY: recursive
@@ -62,11 +69,13 @@ pre_commit:
   tags:
     - build
   variables:
+    APP_DIR: "test_app"
+    APP_NAME: "rmaker_common_test"
     PEDANTIC_FLAGS: "-Werror -Werror=deprecated-declarations -Wno-error=cpp -Werror=unused-variable -Werror=unused-but-set-variable -Werror=unused-function"
     EXTRA_CFLAGS: "${PEDANTIC_FLAGS}"
     EXTRA_CXXFLAGS: "${PEDANTIC_FLAGS}"
   script:
-    - cd test_app
+    - cd $APP_DIR
     - mkdir -p $CI_PROJECT_DIR/merged_fw_bins
     - for TARGET in $TARGETS; do
     -   if [[ "$TARGET" == "linux" || "$TARGET" == "esp32c5" ]]; then
@@ -76,9 +85,9 @@ pre_commit:
     -   fi
     -   idf.py build
     -   if [[ "$TARGET" == "linux" ]]; then
-    -     cp build/rmaker_common_test.elf $CI_PROJECT_DIR/merged_fw_bins/${FW_PREFIX}_${TARGET}.elf
+    -     cp build/${APP_NAME}.elf $CI_PROJECT_DIR/merged_fw_bins/${APP_NAME}_${FW_PREFIX}_${TARGET}.elf
     -   else
-    -     idf.py merge-bin -o $CI_PROJECT_DIR/merged_fw_bins/${FW_PREFIX}_${TARGET}_merged.bin || true
+    -     idf.py merge-bin -o $CI_PROJECT_DIR/merged_fw_bins/${APP_NAME}_${FW_PREFIX}_${TARGET}_merged.bin || true
     -   fi
     - done
   artifacts:
@@ -91,6 +100,9 @@ pre_commit:
   image: $DOCKER_IMAGE
   tags:
     - idf_unit_test_runner
+  variables:
+    APP_DIR: "test_app"
+    APP_NAME: "rmaker_common_test"
 
   before_script:
     - pip3 install -r test_app/requirements.txt
@@ -101,12 +113,12 @@ pre_commit:
     - rfc_port=$(python3 -c "import glob, json; f = glob.glob('/root/.resource-pool/${TARGET}*.json')[0]; print(json.load(open(f))['data']['rfc_port'])")
     - export PORT=rfc2217://${ip}:${rfc_port}
     - python3 resource-pool-cli.py erase-flash /root/.resource-pool/${TARGET}*.json
-    - python3 resource-pool-cli.py flash $CI_PROJECT_DIR/merged_fw_bins/${FW_PREFIX}_${TARGET}_merged.bin 0x0 /root/.resource-pool/${TARGET}*.json
+    - python3 resource-pool-cli.py flash $CI_PROJECT_DIR/merged_fw_bins/${APP_NAME}_${FW_PREFIX}_${TARGET}_merged.bin 0x0 /root/.resource-pool/${TARGET}*.json
     - python3 resource-pool-cli.py rfc2217-server /root/.resource-pool/${TARGET}*.json
 
   script:
-    - cd test_app
-    - python run_test.py ${PORT} -l "OK" --log-file result.txt
+    - cd $APP_DIR
+    - python $CI_PROJECT_DIR/test_app/run_test.py ${PORT} -l "OK" --log-file result.txt
     - if grep -q FAIL result.txt; then
     -   echo "❌ Found FAIL entries in result.txt"
     -   exit 1
@@ -158,6 +170,56 @@ build_idf_v6.0:
   variables:
     TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32p4 esp32c5 esp32c2 esp32h2 linux"
     FW_PREFIX: "idf_v6.0"
+
+# rmaker_aws_sign is an optional component with its own test app.
+.aws_sign_app:
+  variables:
+    APP_DIR: "components/rmaker_aws_sign/test_apps"
+    APP_NAME: "rmaker_aws_sign_test"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+    - changes:
+        paths:
+          - components/rmaker_aws_sign/**/*
+          - .gitlab-ci.yml
+        compare_to: refs/heads/master
+
+build_aws_sign_idf_v5.1:
+  extends: [build_idf_v5.1, .aws_sign_app]
+
+build_aws_sign_idf_v5.2:
+  extends: [build_idf_v5.2, .aws_sign_app]
+
+build_aws_sign_idf_v5.3:
+  extends: [build_idf_v5.3, .aws_sign_app]
+
+build_aws_sign_idf_v5.4:
+  extends: [build_idf_v5.4, .aws_sign_app]
+
+build_aws_sign_idf_v5.5:
+  extends: [build_idf_v5.5, .aws_sign_app]
+
+build_aws_sign_idf_v6.0:
+  extends: [build_idf_v6.0, .aws_sign_app]
+
+test_aws_sign_idf_v5.5:
+  extends: [test_idf_v5.5, .aws_sign_app]
+  needs: [build_aws_sign_idf_v5.5]
+
+# Runs the suites on the host, so the linux target stays usable for the KVS port.
+test_aws_sign_linux_idf_v5.5:
+  extends: .aws_sign_app
+  stage: unittest
+  image: espressif/idf:release-v5.5
+  tags:
+    - build
+  needs: []
+  script:
+    - python -m pip install "pytest-embedded-idf>=1.12" "pytest-embedded-serial-esp>=1.12"
+    - cd $APP_DIR
+    - idf.py --preview set-target linux
+    - idf.py build
+    - python -m pytest pytest_rmaker_aws_sign.py -k linux --target linux --embedded-services idf --app-path . --build-dir build
 
 test_idf_v5.5:
   extends: .test_template

@@ -33,3 +33,15 @@ repos:
     - --comment-style
     - /*| *| */
     - --allow-past-years
+
+# Keep the rmaker_aws_sign default ESP-IDF port strippable from the link, and its
+# core free of backend names. Neither is something a compiler warns about.
+- repo: local
+  hooks:
+  - id: rmaker-aws-sign-port-isolation
+    name: rmaker_aws_sign port isolation
+    entry: components/rmaker_aws_sign/check_port_isolation.py
+    language: python
+    pass_filenames: false
+    files: ^components/rmaker_aws_sign/(src|include|priv_include|port)/
+    stages: [pre-commit, manual]

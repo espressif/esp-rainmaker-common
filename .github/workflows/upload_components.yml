@@ -18,6 +18,7 @@ jobs:
         with:
           components: |
             rmaker_common: .
+            components/rmaker_aws_sign
             components/rmaker_work_queue
             components/rmaker_cmd_resp
             components/rmaker_console
