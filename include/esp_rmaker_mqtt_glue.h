@@ -117,7 +117,14 @@ typedef esp_err_t (*esp_rmaker_mqtt_disconnect_t)(void);
  * @param[in] qos Quality of service for the message.
  * @param[out] msg_id If a non NULL pointer is passed, the id of the published message will be returned in this.
  *
+ * @note With the default esp-mqtt glue, a publish is dropped only from MQTT_EVENT_BEFORE_CONNECT
+ * until the client reports another state. mqtt_task holds the esp-mqtt API lock across that
+ * blocking TLS connect, so calling esp_mqtt_client_publish() would stall the caller. The message
+ * is discarded and a log is printed. Outside that window, including while disconnected, the
+ * publish is passed through and esp-mqtt queues QoS > 0 for reconnect.
+ *
  * @return ESP_OK on success.
+ * @return ESP_ERR_INVALID_STATE when the publish was dropped because a connect is in progress.
  * @return error in case of any error.
  */
 typedef esp_err_t (*esp_rmaker_mqtt_publish_t)(const char *topic, void *data, size_t data_len, uint8_t qos, int *msg_id);
