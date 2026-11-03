@@ -1,0 +1,5 @@
+dependencies:
+  idf: ">=5.1"
+  espressif/rmaker_console:
+    version: "*"
+    override_path: "../../"
