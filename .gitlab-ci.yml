@@ -171,6 +171,13 @@ build_idf_v6.0:
     TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32p4 esp32c5 esp32c2 esp32h2 linux"
     FW_PREFIX: "idf_v6.0"
 
+build_idf_v6.1:
+  extends: .build_template
+  image: espressif/idf:release-v6.1
+  variables:
+    TARGETS: "esp32 esp32s2 esp32c3 esp32s3 esp32c6 esp32p4 esp32c5 esp32c2 esp32h2 linux"
+    FW_PREFIX: "idf_v6.1"
+
 # rmaker_aws_sign is an optional component with its own test app.
 .aws_sign_app:
   variables:
@@ -220,6 +227,98 @@ test_aws_sign_linux_idf_v5.5:
     - idf.py --preview set-target linux
     - idf.py build
     - python -m pytest pytest_rmaker_aws_sign.py -k linux --target linux --embedded-services idf --app-path . --build-dir build
+
+# Console test app. Chip builds use the legacy UART task, and the "_repl" builds apply sdkconfig.ci.repl.
+.console_app:
+  variables:
+    APP_DIR: "components/rmaker_console/test_apps"
+    APP_NAME: "rmaker_console_test"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "master"
+    - changes:
+        paths:
+          - components/rmaker_console/**/*
+          - .gitlab-ci.yml
+        compare_to: refs/heads/master
+
+.console_repl:
+  variables:
+    APP_NAME: "rmaker_console_repl_test"
+    SDKCONFIG_DEFAULTS: "sdkconfig.defaults;sdkconfig.ci.repl"
+
+build_console_idf_v5.5:
+  extends: [build_idf_v5.5, .console_app]
+  variables:
+    TARGETS: "esp32c3"
+
+build_console_repl_idf_v5.5:
+  extends: [build_console_idf_v5.5, .console_repl]
+
+build_console_idf_v6.1:
+  extends: [build_idf_v6.1, .console_app]
+  variables:
+    TARGETS: "esp32c3"
+
+build_console_repl_idf_v6.1:
+  extends: [build_console_idf_v6.1, .console_repl]
+
+# The resource pool flashes the board. pytest uses plain serial, because esptool cannot connect over rfc2217.
+.console_chip_test:
+  extends: [.test_template, .console_app]
+  variables:
+    TARGET: "esp32c3"
+  script:
+    - python -m pip install "pytest-embedded-idf>=1.12" "pytest-embedded-serial-esp>=1.12"
+    - cd $APP_DIR
+    - python -m pytest pytest_rmaker_console.py -k esp32c3 --target esp32c3 --embedded-services serial --port ${PORT}
+
+test_console_idf_v5.5:
+  extends: .console_chip_test
+  image: espressif/idf:release-v5.5
+  variables:
+    FW_PREFIX: "idf_v5.5"
+  needs: [build_console_idf_v5.5]
+
+test_console_repl_idf_v5.5:
+  extends: [test_console_idf_v5.5, .console_repl]
+  needs: [build_console_repl_idf_v5.5]
+
+test_console_idf_v6.1:
+  extends: .console_chip_test
+  image: espressif/idf:release-v6.1
+  variables:
+    FW_PREFIX: "idf_v6.1"
+  needs: [build_console_idf_v6.1]
+
+test_console_repl_idf_v6.1:
+  extends: [test_console_idf_v6.1, .console_repl]
+  needs: [build_console_repl_idf_v6.1]
+
+# Runs the console REPL on the host for each IDF version that has the Linux stdin reader.
+.console_linux_test:
+  extends: .console_app
+  stage: unittest
+  tags:
+    - build
+  needs: []
+  script:
+    - python -m pip install "pytest-embedded-idf>=1.12" "pytest-embedded-serial-esp>=1.12"
+    - cd $APP_DIR
+    - idf.py --preview set-target linux
+    - idf.py build
+    - python -m pytest pytest_rmaker_console.py -k linux --target linux --embedded-services idf --app-path . --build-dir build
+
+test_console_linux_idf_v5.5:
+  extends: .console_linux_test
+  image: espressif/idf:release-v5.5
+
+test_console_linux_idf_v6.0:
+  extends: .console_linux_test
+  image: espressif/idf:release-v6.0
+
+test_console_linux_idf_v6.1:
+  extends: .console_linux_test
+  image: espressif/idf:release-v6.1
 
 test_idf_v5.5:
   extends: .test_template
