@@ -19,6 +19,7 @@ extern "C"
  * Initializes serial console and adds basic commands.
  *
  * @return ESP_OK on success.
+ * @return ESP_ERR_NOT_SUPPORTED for the REPL with CONFIG_ESP_CONSOLE_NONE, or on Linux before ESP-IDF v5.5.
  * @return error in case of failures.
  *
  * @note This function does console initialization and registers the rmaker common commands.

@@ -11,6 +11,7 @@ Call `esp_rmaker_common_console_init()` for a one-shot setup, or initialize the 
 ## Requirements
 
 - ESP-IDF v5.1 or newer
+- The Linux target needs ESP-IDF v5.5 or newer
 
 ## Configuration
 
