@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <esp_log.h>
+#include <esp_idf_version.h>
 #include <esp_console.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -18,12 +19,38 @@ static const char *TAG = "rmaker_console";
 
 #if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
 #if CONFIG_ESP_RMAKER_CONSOLE_USE_REPL
+static esp_err_t scli_new_repl(const esp_console_repl_config_t *repl_config, esp_console_repl_t **repl)
+{
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+    return esp_console_new_repl_stdio(repl_config, repl);
+#elif defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
+    esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
+    return esp_console_new_repl_uart(&hw_config, repl_config, repl);
+#elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
+    esp_console_dev_usb_cdc_config_t hw_config = ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT();
+    return esp_console_new_repl_usb_cdc(&hw_config, repl_config, repl);
+#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
+    esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
+    return esp_console_new_repl_usb_serial_jtag(&hw_config, repl_config, repl);
+#elif defined(CONFIG_ESP_CONSOLE_NONE)
+    /* scli_init() rejects this case before it calls here. */
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+#error Unsupported console type
+#endif
+}
+
 static esp_err_t scli_init(void)
 {
     static bool cli_started = false;
     if (cli_started) {
         return ESP_OK;
     }
+
+#if CONFIG_ESP_CONSOLE_NONE
+    ESP_LOGE(TAG, "No console channel is set (CONFIG_ESP_CONSOLE_NONE)");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 
     esp_console_repl_t *repl = NULL;
     esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
@@ -34,23 +61,17 @@ static esp_err_t scli_init(void)
      * since linenoiseHistorySetMaxLen returns 0 for len < 1). */
     repl_config.max_history_len = CONFIG_ESP_RMAKER_CONSOLE_MAX_HISTORY_LEN;
 
-#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
-    esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
+    esp_err_t err = scli_new_repl(&repl_config, &repl);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Couldn't create the console REPL: %s", esp_err_to_name(err));
+        return err;
+    }
 
-#elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
-    esp_console_dev_usb_cdc_config_t hw_config = ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_usb_cdc(&hw_config, &repl_config, &repl));
-
-#elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
-    esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
-
-#else
-#error Unsupported console type
-#endif
-
-    ESP_ERROR_CHECK(esp_console_start_repl(repl));
+    err = esp_console_start_repl(repl);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Couldn't start the console REPL: %s", esp_err_to_name(err));
+        return err;
+    }
     cli_started = true;
     return ESP_OK;
 }

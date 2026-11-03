@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: 2022 Espressif Systems (Shanghai) CO LTD
+ * SPDX-FileCopyrightText: 2022-2026 Espressif Systems (Shanghai) CO LTD
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -23,6 +23,7 @@ extern "C"
  *
  * @note This function does console initialization and registers the rmaker common commands.
  *  If you wish to initialize the console yourself, you can call esp_rmaker_common_register_commands after console init
+ * @note With CONFIG_ESP_RMAKER_CONSOLE_USE_REPL, this function calls esp_console_init(). Do not call it first.
  */
 esp_err_t esp_rmaker_common_console_init(void);
 
