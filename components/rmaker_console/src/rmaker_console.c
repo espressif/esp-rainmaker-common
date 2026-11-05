@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <esp_log.h>
+#include <esp_idf_version.h>
 #include <esp_console.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -17,32 +18,106 @@
 static const char *TAG = "rmaker_console";
 
 #if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
-#ifdef CONFIG_IDF_TARGET_LINUX
-static esp_err_t scli_init()
+#if CONFIG_ESP_RMAKER_CONSOLE_USE_REPL
+#if CONFIG_IDF_TARGET_LINUX && ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 0)
+#define LINUX_CONSOLE_SUPPORTED 1
+#define LINUX_CONSOLE_STDIN_READER 1
+#include <poll.h>
+#include <linenoise/linenoise.h>
+
+/* Reads stdin without a blocking read() (esp-idf#15056, v6.1 VFS EBADF), and stops at EOF,
+ * where the linenoise reader makes the REPL print the prompt in a loop. */
+static ssize_t scli_read_stdin(int fd, void *buf, size_t len)
 {
-    esp_console_repl_t *repl = NULL;
-    esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
+    (void)fd;
+    if (len == 0) {
+        return 0;
+    }
+    struct pollfd pfd = { .fd = fileno(stdin), .events = POLLIN };
+    while (poll(&pfd, 1, 0) <= 0) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    int c = getc(stdin);
+    if (c == EOF) {
+        if (feof(stdin)) {
+            /* stdin does not reopen, and a return makes the REPL print the prompt again. */
+            ESP_LOGW(TAG, "stdin closed; console input stopped");
+            vTaskSuspend(NULL);
+        }
+        clearerr(stdin);
+        return -1;
+    }
+    *(char *)buf = (char)c;
+    return 1;
+}
+#endif /* LINUX_CONSOLE_SUPPORTED */
 
-#if defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
+static esp_err_t scli_new_repl(const esp_console_repl_config_t *repl_config, esp_console_repl_t **repl)
+{
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(6, 1, 0)
+    return esp_console_new_repl_stdio(repl_config, repl);
+#elif defined(CONFIG_ESP_CONSOLE_UART_DEFAULT) || defined(CONFIG_ESP_CONSOLE_UART_CUSTOM)
     esp_console_dev_uart_config_t hw_config = ESP_CONSOLE_DEV_UART_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_uart(&hw_config, &repl_config, &repl));
-
+    return esp_console_new_repl_uart(&hw_config, repl_config, repl);
 #elif defined(CONFIG_ESP_CONSOLE_USB_CDC)
     esp_console_dev_usb_cdc_config_t hw_config = ESP_CONSOLE_DEV_CDC_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_usb_cdc(&hw_config, &repl_config, &repl));
-
+    return esp_console_new_repl_usb_cdc(&hw_config, repl_config, repl);
 #elif defined(CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG)
     esp_console_dev_usb_serial_jtag_config_t hw_config = ESP_CONSOLE_DEV_USB_SERIAL_JTAG_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_console_new_repl_usb_serial_jtag(&hw_config, &repl_config, &repl));
-
+    return esp_console_new_repl_usb_serial_jtag(&hw_config, repl_config, repl);
+#elif defined(CONFIG_ESP_CONSOLE_NONE)
+    /* scli_init() rejects this case before it calls here. */
+    return ESP_ERR_NOT_SUPPORTED;
 #else
 #error Unsupported console type
 #endif
+}
 
-    ESP_ERROR_CHECK(esp_console_start_repl(repl));
+static esp_err_t scli_init(void)
+{
+    static bool cli_started = false;
+    if (cli_started) {
+        return ESP_OK;
+    }
+
+#if CONFIG_ESP_CONSOLE_NONE
+    ESP_LOGE(TAG, "No console channel is set (CONFIG_ESP_CONSOLE_NONE)");
+    return ESP_ERR_NOT_SUPPORTED;
+#elif CONFIG_IDF_TARGET_LINUX && !defined(LINUX_CONSOLE_SUPPORTED)
+    /* linenoise has no read hook before IDF v5.5, so the Linux REPL cannot read stdin reliably. */
+    ESP_LOGE(TAG, "The Linux console needs ESP-IDF v5.5 or later");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+
+    esp_console_repl_t *repl = NULL;
+    esp_console_repl_config_t repl_config = ESP_CONSOLE_REPL_CONFIG_DEFAULT();
+    repl_config.prompt = ">> ";
+    repl_config.task_stack_size = CONFIG_ESP_RMAKER_CONSOLE_TASK_STACK;
+    repl_config.task_priority = CONFIG_ESP_RMAKER_CONSOLE_TASK_PRIORITY;
+    /* Command history length is Kconfig-tunable (min 1; the helper rejects 0
+     * since linenoiseHistorySetMaxLen returns 0 for len < 1). */
+    repl_config.max_history_len = CONFIG_ESP_RMAKER_CONSOLE_MAX_HISTORY_LEN;
+
+    esp_err_t err = scli_new_repl(&repl_config, &repl);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Couldn't create the console REPL: %s", esp_err_to_name(err));
+        return err;
+    }
+
+#ifdef LINUX_CONSOLE_STDIN_READER
+    /* Replace the linenoise reader before the REPL task starts. */
+    linenoiseSetReadFunction(scli_read_stdin);
+#endif
+
+    err = esp_console_start_repl(repl);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Couldn't start the console REPL: %s", esp_err_to_name(err));
+        return err;
+    }
+    cli_started = true;
     return ESP_OK;
 }
-#else /* CONFIG_IDF_TARGET_LINUX */
+#else /* CONFIG_ESP_RMAKER_CONSOLE_USE_REPL */
 #include <driver/uart.h>
 static int stop;
 
@@ -167,7 +242,7 @@ static esp_err_t scli_init(void)
     cli_started = true;
     return ESP_OK;
 }
-#endif /* CONFIG_IDF_TARGET_LINUX */
+#endif /* CONFIG_ESP_RMAKER_CONSOLE_USE_REPL */
 #endif /* CONFIG_ESP_RMAKER_CONSOLE_ENABLED */
 
 esp_err_t esp_rmaker_common_console_init()

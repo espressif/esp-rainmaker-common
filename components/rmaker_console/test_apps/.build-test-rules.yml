@@ -1,0 +1,5 @@
+components/rmaker_console/test_apps:
+  enable:
+    - if: IDF_TARGET in ["linux", "esp32c3"]
+  depends_filepatterns:
+    - components/rmaker_console/**/*

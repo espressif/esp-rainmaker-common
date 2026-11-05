@@ -12,8 +12,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include <esp_idf_version.h>
 #include <esp_timer.h>
-#include <nvs_flash.h>
 #include <esp_log.h>
 #include <esp_console.h>
 #ifndef CONFIG_IDF_TARGET_LINUX
@@ -47,9 +47,19 @@ static int reboot_cli_handler(int argc, char *argv[])
     return 0;
 }
 
+static int64_t uptime_ms(void)
+{
+#if CONFIG_IDF_TARGET_LINUX && ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(6, 2, 0)
+    /* esp_timer has no Linux implementation before IDF v6.2. */
+    return (int64_t)pdTICKS_TO_MS(xTaskGetTickCount());
+#else
+    return esp_timer_get_time() / 1000;
+#endif
+}
+
 static int up_time_cli_handler(int argc, char *argv[])
 {
-    printf("%s: Uptime of the device: %" PRIi64 " milliseconds\n", TAG, esp_timer_get_time() / 1000);
+    printf("%s: Uptime of the device: %" PRIi64 " milliseconds\n", TAG, uptime_ms());
     return 0;
 }
 
