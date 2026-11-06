@@ -97,6 +97,17 @@ menu "ESP RainMaker Common"
             MQTT Keep Alive Interval. Note that it can take upto 1.5x of keep alive interval for a device
             to be reported by offline by the MQTT Broker. Change this only if required.
 
+    config ESP_RMAKER_MQTT_NETWORK_TIMEOUT_MS
+        int "MQTT network timeout (ms)"
+        depends on ESP_RMAKER_LIB_ESP_MQTT
+        default 10000
+        range 1000 120000
+        help
+            Abort an MQTT network operation (TLS connect, read, write) if it does not
+            complete within this time. Matches esp-mqtt network.timeout_ms (IDF default
+            10000 ms). Lower values fail reconnect faster so callers such as local
+            control are not blocked as long on the MQTT API lock.
+
     config ESP_RMAKER_FACTORY_PARTITION_NAME
         string "ESP RainMaker Factory Partition Name"
         default "fctry"
