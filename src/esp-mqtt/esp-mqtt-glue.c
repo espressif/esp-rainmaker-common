@@ -30,6 +30,10 @@
 #include <esp_crt_bundle.h>
 #endif
 
+#ifndef CONFIG_ESP_RMAKER_MQTT_NETWORK_TIMEOUT_MS
+#define CONFIG_ESP_RMAKER_MQTT_NETWORK_TIMEOUT_MS 10000
+#endif
+
 static const char *TAG = "esp_mqtt_glue";
 
 #define MAX_MQTT_SUBSCRIPTIONS      CONFIG_ESP_RMAKER_MAX_MQTT_SUBSCRIPTIONS
@@ -1028,6 +1032,9 @@ static esp_mqtt_client_config_t esp_mqtt_glue_create_client_config(esp_rmaker_mq
                 .key_len = conn_params->client_key_len,
                 .ds_data = conn_params->ds_data
             },
+        },
+        .network = {
+            .timeout_ms = CONFIG_ESP_RMAKER_MQTT_NETWORK_TIMEOUT_MS,
         },
         .session = {
             .keepalive = CONFIG_ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL,
