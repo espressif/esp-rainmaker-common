@@ -14,8 +14,47 @@
 #include <freertos/queue.h>
 
 #include <esp_rmaker_common_console.h>
+#include <rmaker_console_line_edit.h>
 
 static const char *TAG = "rmaker_console";
+
+/* Classify a single received byte for the line reader. */
+rmaker_console_byte_action_t rmaker_console_classify_byte(uint8_t c, rmaker_console_esc_state_t *esc_state)
+{
+    /* A line end also ends an incomplete escape sequence. */
+    if (c == '\r' || c == '\n') {
+        *esc_state = RMAKER_CONSOLE_ESC_NONE;
+        return RMAKER_CONSOLE_BYTE_EOL;
+    }
+
+    if (*esc_state == RMAKER_CONSOLE_ESC_SEEN) {
+        /* After ESC: a CSI ('[') or SS3 ('O') introducer starts a sequence. */
+        if (c == '[' || c == 'O') {
+            *esc_state = RMAKER_CONSOLE_ESC_SEQ;
+            return RMAKER_CONSOLE_BYTE_IGNORE;
+        }
+        /* Lone ESC (no introducer): drop the ESC and process this byte
+         * normally, so the character following a bare ESC is not swallowed. */
+        *esc_state = RMAKER_CONSOLE_ESC_NONE;
+        /* fall through */
+    } else if (*esc_state == RMAKER_CONSOLE_ESC_SEQ) {
+        /* Consume params until the final byte (0x40-0x7E) of the sequence. */
+        if (c >= 0x40 && c <= 0x7e) {
+            *esc_state = RMAKER_CONSOLE_ESC_NONE;
+        }
+        return RMAKER_CONSOLE_BYTE_IGNORE;
+    }
+
+    if (c == 0x1b) { /* ESC */
+        *esc_state = RMAKER_CONSOLE_ESC_SEEN;
+        return RMAKER_CONSOLE_BYTE_IGNORE;
+    } else if (c == '\b' || c == 0x7f) { /* Many terminals send DEL for Backspace. */
+        return RMAKER_CONSOLE_BYTE_BACKSPACE;
+    } else if (c < 0x20) {
+        return RMAKER_CONSOLE_BYTE_IGNORE;
+    }
+    return RMAKER_CONSOLE_BYTE_STORE;
+}
 
 #if CONFIG_ESP_RMAKER_CONSOLE_ENABLED
 #if CONFIG_ESP_RMAKER_CONSOLE_USE_REPL
@@ -136,6 +175,7 @@ static void scli_task(void *arg)
     uart_event_t event;
     bool first_done = false;
     bool overflow, lost;
+    rmaker_console_esc_state_t esc_state;
 
     ESP_LOGI(TAG, "Initialising UART on port %d", uart_num);
     uart_driver_install(uart_num, 256, 0, 8, &uart_queue, 0);
@@ -156,6 +196,7 @@ static void scli_task(void *arg)
         }
         memset(linebuf, 0, sizeof(linebuf));
         i = 0;
+        esc_state = RMAKER_CONSOLE_ESC_NONE;
         overflow = false;
         lost = false;
         do {
@@ -178,18 +219,29 @@ static void scli_task(void *arg)
                 }
                 continue;
             }
-            if (c == '\r' || c == '\n') {
+
+            /* Filter arrow keys and other escape sequences so they are
+             * neither echoed nor stored (see rmaker_console_classify_byte). */
+            rmaker_console_byte_action_t action = rmaker_console_classify_byte(c, &esc_state);
+            if (action == RMAKER_CONSOLE_BYTE_IGNORE) {
+                continue;
+            }
+
+            if (action == RMAKER_CONSOLE_BYTE_EOL) {
                 uart_write_bytes(uart_num, "\r\n", 2);
                 break;
             }
-            uart_write_bytes(uart_num, (const char *) &c, 1);
 
-            /* Handle backspace */
-            if (c == '\b') {
+            if (action == RMAKER_CONSOLE_BYTE_BACKSPACE) {
+                /* Erase the char on the terminal too, as an echoed DEL does nothing. */
                 if (i > 0) {
                     linebuf[--i] = '\0';
+                    uart_write_bytes(uart_num, "\b \b", 3);
                 }
-            } else if (i < (int) sizeof(linebuf) - 1) {
+                continue;
+            }
+            uart_write_bytes(uart_num, (const char *) &c, 1);
+            if (i < (int) sizeof(linebuf) - 1) {
                 linebuf[i++] = c;
             } else {
                 /* Line is full: drop this byte and the rest of the line. Sticky, as

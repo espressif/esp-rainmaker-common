@@ -108,3 +108,14 @@ def test_console_stdin_closed(app: IdfApp):
     text = out.decode(errors='replace')
     assert "stdin closed; console input stopped" in text
     assert text.count(">> ") <= 1, f"{text.count('>> ')} prompts with stdin closed"
+
+
+@idf_parametrize('target', ['esp32c3'], indirect=['target'])
+def test_console_legacy_line_edit(dut: IdfDut, target: str):
+    """The legacy reader drops escape sequences and control bytes, and treats DEL as backspace"""
+    if wait_ready(dut, target) == 'repl':
+        pytest.skip("linenoise does the line editing in the REPL")
+    # An incomplete "Esc [" must not swallow the line end or the next line.
+    dut.write("\x1b[")
+    dut.write("upX\x7f\x1b[A-ti\x07me")
+    dut.expect(r"Uptime of the device: \d+ milliseconds")
