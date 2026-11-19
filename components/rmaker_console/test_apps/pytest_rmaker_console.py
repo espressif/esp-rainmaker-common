@@ -119,3 +119,11 @@ def test_console_legacy_line_edit(dut: IdfDut, target: str):
     dut.write("\x1b[")
     dut.write("upX\x7f\x1b[A-ti\x07me")
     dut.expect(r"Uptime of the device: \d+ milliseconds")
+
+
+@idf_parametrize('target', TARGETS, indirect=['target'])
+def test_console_reregister(dut: IdfDut, target: str):
+    """Commands deregistered and registered again run again"""
+    if target != 'linux':
+        reset_chip(dut)
+    dut.expect_exact("rmaker_console_test: re-register ok")

@@ -363,9 +363,10 @@ static void register_time_commands()
     esp_console_cmd_register(&tz_set_cmd);
 }
 
+static bool registered = false;
+
 void esp_rmaker_common_register_commands()
 {
-    static bool registered = false;
     if (registered) {
         ESP_LOGI(TAG, "Skipping already registered commands");
         return;
@@ -374,4 +375,24 @@ void esp_rmaker_common_register_commands()
     register_reset_to_factory();
     register_time_commands();
     registered = true;
+}
+
+esp_err_t esp_rmaker_common_deregister_commands(void)
+{
+    registered = false;
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 0)
+    /* Every command registered above. Keep in sync with the register functions. */
+    static const char *const s_command_names[] = {
+        "reboot", "up-time", "mem-dump", "task-dump", "cpu-dump", "sock-dump", "heap-trace",
+        "reset-to-factory", "local-time", "tz-set",
+    };
+    /* A command that was never registered, or that a console deinit already
+     * freed, gives ESP_ERR_INVALID_ARG. That is not an error here. */
+    for (size_t i = 0; i < sizeof(s_command_names) / sizeof(s_command_names[0]); i++) {
+        esp_console_cmd_deregister(s_command_names[i]);
+    }
+    return ESP_OK;
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }

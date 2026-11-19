@@ -39,6 +39,26 @@ esp_err_t esp_rmaker_common_console_init(void);
  */
 void esp_rmaker_common_register_commands(void);
 
+/**
+ * @brief Deregister rmaker common console commands
+ *
+ * A later esp_rmaker_common_register_commands() then registers them again.
+ * Use it when the console is stopped and started again, so that the commands
+ * can be added to the new console.
+ *
+ * @note Not thread-safe with respect to the console. The ESP-IDF command list
+ *  has no lock. Call it only when no command can be executing, for example
+ *  after the REPL or console task has been stopped. Never call it from within
+ *  a console command handler.
+ *
+ * @return
+ *  - ESP_OK: the commands are removed (ESP-IDF v5.4 or later).
+ *  - ESP_ERR_NOT_SUPPORTED: ESP-IDF older than v5.4 cannot remove a command.
+ *    Only the register guard is reset, so esp_rmaker_common_register_commands()
+ *    can run again.
+ */
+esp_err_t esp_rmaker_common_deregister_commands(void);
+
 /* Reference for adding custom console commands:
 #include <esp_console.h>
 
