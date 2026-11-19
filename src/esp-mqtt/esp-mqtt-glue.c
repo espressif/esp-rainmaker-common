@@ -34,6 +34,16 @@
 #define CONFIG_ESP_RMAKER_MQTT_NETWORK_TIMEOUT_MS 10000
 #endif
 
+/* network.tcp_keep_alive_cfg was added in ESP-IDF v5.5.1
+ * (esp-mqtt 7c3227a "feat: Add TCP keepalive configuration").
+ * The v5.5 and v5.4.x mqtt submodule (cac1552) does not have the field.
+ * IDF >= 6 pulls espressif/mqtt >= 1.0.0, which includes it. */
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 5, 1)
+#define ESP_RMAKER_MQTT_TCP_KEEPALIVE_SUPPORTED 1
+#else
+#define ESP_RMAKER_MQTT_TCP_KEEPALIVE_SUPPORTED 0
+#endif
+
 static const char *TAG = "esp_mqtt_glue";
 
 #define MAX_MQTT_SUBSCRIPTIONS      CONFIG_ESP_RMAKER_MAX_MQTT_SUBSCRIPTIONS
@@ -991,6 +1001,30 @@ static esp_err_t esp_mqtt_glue_disconnect(void)
 static const char *alpn_protocols[] = { "x-amzn-mqtt-ca", NULL };
 #endif /* ESP_RMAKER_MQTT_USE_PORT_443 */
 
+/* Apply Kconfig TCP keepalive. Warn when this IDF's esp-mqtt has no
+ * network.tcp_keep_alive_cfg. */
+static void esp_mqtt_glue_set_tcp_keepalive(esp_mqtt_client_config_t *cfg)
+{
+#ifdef CONFIG_ESP_RMAKER_MQTT_TCP_KEEPALIVE_ENABLE
+#if ESP_RMAKER_MQTT_TCP_KEEPALIVE_SUPPORTED
+    cfg->network.tcp_keep_alive_cfg.keep_alive_enable = true;
+    cfg->network.tcp_keep_alive_cfg.keep_alive_idle = CONFIG_ESP_RMAKER_MQTT_TCP_KEEPALIVE_IDLE;
+    cfg->network.tcp_keep_alive_cfg.keep_alive_interval = CONFIG_ESP_RMAKER_MQTT_TCP_KEEPALIVE_INTERVAL;
+    cfg->network.tcp_keep_alive_cfg.keep_alive_count = CONFIG_ESP_RMAKER_MQTT_TCP_KEEPALIVE_COUNT;
+#else
+    static bool warning_logged;
+    (void)cfg;
+    if (!warning_logged) {
+        warning_logged = true;
+        ESP_LOGW(TAG, "TCP keepalive requires ESP-IDF >= 5.5.1. "
+                 "Lower CONFIG_ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL if your AP drops idle connections.");
+    }
+#endif
+#else
+    (void)cfg;
+#endif
+}
+
 /* Static helper to create MQTT client config from connection params */
 static esp_mqtt_client_config_t esp_mqtt_glue_create_client_config(esp_rmaker_mqtt_conn_params_t *conn_params)
 {
@@ -1058,6 +1092,7 @@ static esp_mqtt_client_config_t esp_mqtt_glue_create_client_config(esp_rmaker_mq
         ESP_LOGW(TAG, "MQTT ECDSA peripheral is supported only on ESP-IDF >= v5.5.1");
 #endif
     }
+    esp_mqtt_glue_set_tcp_keepalive(&mqtt_client_cfg);
     return mqtt_client_cfg;
 }
 

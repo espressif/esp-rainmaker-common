@@ -108,6 +108,51 @@ menu "ESP RainMaker Common"
             10000 ms). Lower values fail reconnect faster so callers such as local
             control are not blocked as long on the MQTT API lock.
 
+    config ESP_RMAKER_MQTT_TCP_KEEPALIVE_ENABLE
+        bool "Enable TCP keepalive on the MQTT connection"
+        depends on ESP_RMAKER_LIB_ESP_MQTT
+        default n
+        help
+            Some access points drop devices or TCP connections after an
+            inactivity period shorter than the MQTT keepalive interval.
+            Enable this option to send TCP keepalive probes on the MQTT socket.
+            Set the idle time below the access point's inactivity timeout.
+
+            Probes add a small packet after each idle period, which can increase
+            radio wakeups and airtime on power-saving Wi-Fi and Thread devices.
+
+            Requires ESP-IDF v5.5.1 or later. Older versions ignore this
+            option. If your access point drops idle connections on an older
+            version, lower ESP_RMAKER_MQTT_KEEP_ALIVE_INTERVAL.
+
+    config ESP_RMAKER_MQTT_TCP_KEEPALIVE_IDLE
+        int "TCP keepalive idle time (seconds)"
+        depends on ESP_RMAKER_MQTT_TCP_KEEPALIVE_ENABLE
+        default 30
+        range 1 7200
+        help
+            TCP_KEEPIDLE. Seconds the connection must be idle before the first
+            keepalive probe is sent. Default 30.
+
+    config ESP_RMAKER_MQTT_TCP_KEEPALIVE_INTERVAL
+        int "TCP keepalive probe interval (seconds)"
+        depends on ESP_RMAKER_MQTT_TCP_KEEPALIVE_ENABLE
+        default 5
+        range 1 7200
+        help
+            TCP_KEEPINTVL. Seconds between keepalive probes after the idle time.
+            Default 5.
+
+    config ESP_RMAKER_MQTT_TCP_KEEPALIVE_COUNT
+        int "TCP keepalive probe count"
+        depends on ESP_RMAKER_MQTT_TCP_KEEPALIVE_ENABLE
+        default 5
+        range 1 20
+        help
+            TCP_KEEPCNT. Number of unanswered probes before the stack aborts the
+            connection. Default 5. With the defaults the connection is aborted
+            30 + 5 * 5 = 55 seconds after the last TCP activity.
+
     config ESP_RMAKER_FACTORY_PARTITION_NAME
         string "ESP RainMaker Factory Partition Name"
         default "fctry"
